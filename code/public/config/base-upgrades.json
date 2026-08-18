@@ -1,0 +1,1 @@
+{"contentVersion":1,"kind":"base-upgrades","entries":[{"id":"stash-2","name":"Склад L2","node":"stash","targetLevel":2,"cost":{"metal":5},"capacityBonus":10,"description":"Добавляет 10 единиц вместимости."}]}

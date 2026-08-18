@@ -1,85 +1,78 @@
 # EDEN PROTOCOL — Game Bible
 
-> Рабочее название проекта. Финальное имя определим на этапе брендинга.
-
-Живой документ команды разработки. Обновляется по мере обсуждения. Каждая секция версионируется.
+> Живой русскоязычный production-документ. Рабочее название проекта.
 
 **Владелец продукта:** Alex Bayov
-**AI Chief of Staff / документатор:** Lindy
-**Дата старта:** 30 июля 2026
-**Целевая платформа:** Яндекс.Игры (HTML5, desktop + mobile)
-**Жанр:** Turn-based tactical RPG / Post-apocalyptic survival
-**Модель:** Single-player + асинхронные лидерборды, F2P + Premium + реклама
+**Документатор:** Lindy
+**Целевая платформа:** Яндекс.Игры, desktop + mobile
+**Модель:** single-player; асинхронные лидерборды и платформенные интеграции — после проверки совместимости.
 
----
+## Source-of-truth order
 
-## Утверждённые ключевые решения (для быстрого чтения)
+1. Явные утверждённые решения владельца и таблица ниже.
+2. [`20-mvp-scope-and-roadmap.md`](20-mvp-scope-and-roadmap.md) — scope первого публичного релиза.
+3. Production-документы 09–19 и [`13-narrative-and-setting.md`](13-narrative-and-setting.md).
+4. [`04-combat-formula-reconciliation.md`](04-combat-formula-reconciliation.md) — authoritative v1.0 numerical combat contract for the prototype.
+5. Старые 01–08 и [`13-narrative-antagonist-options.md`](13-narrative-antagonist-options.md) — исторический/детальный материал, не удалённый и действующий только без конфликта.
+6. `code/` — источник фактического поведения **combat prototype**, реализующий reconciliation v1.0 в пределах текущего scope.
 
-| # | Решение | Значение |
-|---|---------|----------|
-| Движок | **Phaser 3 + TypeScript** | утверждено |
-| UI-слой | **Preact + Framer Motion** поверх canvas | утверждено |
-| Платформа | **Яндекс.Игры**, desktop + mobile | утверждено |
-| Перспектива | **Изометрия, статичная камера, 2D** | утверждено |
-| Режим | **Single-player + async лидерборды** | утверждено |
-| Тон | **Суровый постапок со светом и надеждой** (не безнадёжная тьма) | утверждено |
-| Оружие | **Советская классика (реальные имена) + фиктивные для западного** | утверждено |
-| Сессия | **30-40 мин ежедневно** через систему **энергии** | утверждено |
-| Расширение сессии | **Реклама + донат-валюта + Premium** | утверждено |
-| Прогрессия | **1 очко навыка за уровень + разблокировка зон** | утверждено |
-| Крафт | **Мелочь = 100%, оружие = %-шанс, мастер-рецепты за донат/экстра ресурсы** | утверждено |
-| Мотивация | **Строить/апгрейдить базу; уникальные ресурсы в тяжёлых зонах** | утверждено |
-| Смерть | **-20% XP до next-level, -30% обычных ресурсов, -1 редкий, +6ч мира, -10 энергии** | утверждено |
-| MVP | **10-15 часов + бесконечная реиграбельность через ежедневки** | утверждено |
-| Антагонист | **A (Время) основной + B (Мародёры) как источник миссий** | утверждено |
-| Герой | **Кастомизация: имя + минимальный внешний вид** | утверждено |
+**М3-B:** strict save validation подтверждена; browser E2E и performance QA остаются pending. Фактический slice: одна зона, три encounter, runtime map switching и campaign/save flow. Exactly-once действует только в normal application flow. LocalStorage save защищён от corruption и обычных flow-ошибок, но не от ручного rollback/edit; anti-tamper и authoritative leaderboards требуют будущего cloud/server save.
 
----
+Formula reconciliation выполнен: числовые формулы Hit/Crit/Damage/Armor/AP/Overwatch/execution зафиксированы в [`04-combat-formula-reconciliation.md`](04-combat-formula-reconciliation.md); `docs/04-combat-system.md` остаётся design intent.
+## Approved decisions
 
-## Структура библии
+| Решение | Зафиксировано |
+|---|---|
+| Первый публичный релиз | полный MVP на 10–15 часов основного контента |
+| Платформа | desktop + mobile с первого playable |
+| Combat scope | 6 body parts, postures, statuses, Overwatch, armor/durability/malfunctions в планируемом MVP |
+| Монетизация | без P2W и tempo-бонусов; только opt-in реклама за неигровую/несиловую награду и косметика, если совместимо с платформой |
+| Нарратив | A «Время» — мета-антагонист; B «Восход» — локальный источник миссий |
+| Движок/UI | фактический prototype: Phaser 4.2.1 + TypeScript, Preact; решение Phaser 3/4 открыто |
+| Код | `code/` — combat prototype, не production MVP |
 
-| # | Раздел | Статус | Назначение |
-|---|--------|--------|------------|
-| 01 | Vision & Design Pillars | 🟢 v0.2 утверждено | Ядро игры, столпы, USP |
-| 01c | Vision Critic | 🟢 v0.1 | Критика Vision по 6 AAA-референсам |
-| 02c | Engine Critic | 🟢 v0.1 | Обоснование выбора Phaser 3 |
-| 02 | Engine & Tech Choice | ⚪ следующий | Финальный TDD по стеку |
-| 03 | Core Gameplay Loop | 🟡 v0.1 (к балансу вернёмся) | Энергия, ежедневки, инстанс дня, сессия |
-| 03c | Loop Critic | ⚪ позже | Критика лупа |
-| 04 | Combat System | 🟡 пишу | Пошаговая боёвка + таргетинг частей тела |
-| 04c | Combat Critic | ⚪ следующий | Сравнение с Fallout/XCOM/ATOM/Underrail |
-| 05 | Character & Progression | ⚪ | Атрибуты, навыки, опыт |
-| 06 | Weapons & Modifications | ⚪ | Оружие, моды, деградация, ремонт |
-| 07 | Inventory & Equipment | ⚪ | Слоты + вес, шмот на герое |
-| 08 | Crafting System | ⚪ | Крафт, ресурсы, чертежи, шанс провала |
-| 09 | Base & Home Systems | ⚪ | База, апгрейды, хранилища |
-| 10 | Exploration & Zones | ⚪ | Мир, вылазки, 10 зон |
-| 11 | Enemies & AI | ⚪ | Монстры, характеристики, поведение |
-| 12 | Economy & Balance | ⚪ | Ресурсы, лут, кривые прогрессии |
-| 13 | Narrative & Setting | 🟡 v0.1 (выбрано A+B) | Сюжет, лор, антагонист |
-| 14 | UI/UX & Art Direction | ⚪ | Экраны, стиль, mobile-first |
-| 15 | Audio Design | ⚪ | Музыка, SFX |
-| 16 | Monetization | ⚪ | Реклама, Premium, лидерборды, донат-валюта |
-| 17 | Engineering TDD | ⚪ | ТЗ для разработчиков |
-| 18 | QA Test Plan | ⚪ | ТЗ для тестировщиков |
-| 19 | Art & Design Brief | ⚪ | ТЗ для художников/дизайнеров |
-| 20 | MVP Scope & Roadmap | ⚪ | Что входит в первые 10-15 часов |
+## Структура и статусы
 
-Легенда: 🟢 готово / 🟡 в работе / ⚪ ожидает / 🔴 нужно решение владельца
+| Файл | Статус | Назначение |
+|---|---|---|
+| [00-critical-audit](00-critical-audit.md) | 🟡 M3-B browser E2E/performance pending | read-only аудит, P0/P1 и правила истины |
+| [01-vision-and-pillars](01-vision-and-pillars.md) | 🟢 v0.2 | vision и столпы |
+| [01-critic-vision](01-critic-vision.md) | 🟢 v0.1 | критика vision |
+| [02-critic-engine](02-critic-engine.md) | 🟢 v0.1 | историческая критика движка |
+| [03-core-gameplay-loop](03-core-gameplay-loop.md) | 🟡 v0.1 | старый baseline loop, требует сверки с MVP |
+| [03-critic-loop](03-critic-loop.md) | 🟢 v1.0 | critic loop и review gates |
+| [04-combat-system](04-combat-system.md) | 🟡 v0.2 | полный combat design; числа — в reconciliation |
+| [04-combat-formula-reconciliation](04-combat-formula-reconciliation.md) | 🟢 v1.0 | authoritative combat formulas, mapping docs→code→tests |
+| [04-critic-combat](04-critic-combat.md) | 🟢 v0.1 | историческая критика боя |
+| [05-character-and-progression](05-character-and-progression.md) | 🟡 v0.2 | детальная прогрессия; baseline до баланса |
+| [06-weapons-and-modifications](06-weapons-and-modifications.md) | 🟡 v0.2 | каталог оружия; scope урезается 20 |
+| [07-inventory-and-equipment](07-inventory-and-equipment.md) | 🟡 v0.2 | инвентарь; monetization QoL перепроверить |
+| [08-crafting-and-resources](08-crafting-and-resources.md) | 🟡 v0.2 | крафт; платные элементы отменены 16 |
+| [09-base-and-home-systems](09-base-and-home-systems.md) | 🟢 v1.0 | production base MVP |
+| [10-exploration-and-zones](10-exploration-and-zones.md) | 🟢 v1.0 | 4 зоны первого релиза |
+| [11-enemies-and-ai](11-enemies-and-ai.md) | 🟢 v1.0 | roster и decision model |
+| [12-economy-and-balance](12-economy-and-balance.md) | 🟢 v1.0 | baseline экономики и gates |
+| [13-narrative-antagonist-options](13-narrative-antagonist-options.md) | 🟡 v0.1 | исходник вариантов, сохранён |
+| [13-narrative-and-setting](13-narrative-and-setting.md) | 🟢 v1.0 | production narrative A+B |
+| [14-ui-ux-and-art-direction](14-ui-ux-and-art-direction.md) | 🟢 v1.0 | desktop/mobile UX и арт-направление |
+| [15-audio-design](15-audio-design.md) | 🟢 v1.0 | audio matrix |
+| [16-monetization](16-monetization.md) | 🟢 v1.0 | no-P2W монетизация |
+| [17-engineering-tdd](17-engineering-tdd.md) | 🟡 M3-B browser E2E/performance pending | инженерное ТЗ |
+| [18-qa-test-plan](18-qa-test-plan.md) | 🟢 v1.0 | QA и exit criteria |
+| [19-art-and-design-brief](19-art-and-design-brief.md) | 🟢 v1.0 | production brief |
+| [20-mvp-scope-and-roadmap](20-mvp-scope-and-roadmap.md) | 🟢 v1.0 | scope lock и roadmap |
 
----
+Легенда: 🟢 production/утверждено для текущего прохода; 🟡 baseline/требует сверки; ⚪ ожидает; 🔴 блокирует решение.
 
-## Открытые вопросы владельцу продукта
+## Changelog
 
-_(нет активных — ждём завершения раздела 04 Combat System)_
+| Дата | Изменение |
+|---|---|
+| 30 июл 2026 | Созданы vision, critic, loop, combat и первые системные черновики. |
+| 31 июл 2026 | Обновлены progression, weapons, inventory, crafting. |
+| 17 авг 2026 | Добавлен critical audit, нормализованы 03/09–20, зафиксированы MVP, no-P2W, code prototype и formula reconciliation; README обновлён. |
+| 17 авг 2026 | Добавлен `04-combat-formula-reconciliation.md` v1.0; prototype combat, типы и тесты приведены к контракту. |
 
----
+## Открытые решения
 
-## История версий
-
-| Дата | Что изменилось |
-|------|---------------|
-| 30 июл 2026 | Инициация. Закрыты платформа, перспектива, режим, тон, база, смерть, MVP. |
-| 30 июл 2026 | Vision v0.1, Vision Critic, Engine Critic. |
-| 30 июл 2026 | Vision v0.2 утверждено. Раздел 03 Core Loop v0.1. Раздел 13: выбор антагониста A+B. Утверждены: движок (Phaser 3+TS), UI (Preact), оружие (V), тон (свет+мрак), энергия и ежедневки, прогрессия, крафт с шансом провала, кастомизация героя. |
-| 30 июл 2026 | Проект залит в GitHub-репозиторий `alexbayov/eden`. |
+См. отдельные разделы документов. Общие блокеры: formula reconciliation, Phaser 3/4, платформенные API и финальные численные balance/performance budgets.

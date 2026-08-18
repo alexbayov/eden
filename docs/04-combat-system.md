@@ -1,6 +1,6 @@
 # 04 — Combat System
 
-**Статус:** 🟢 v0.2 — правки после Combat Critic и решений владельца
+**Статус:** 🟡 v0.2 — design scope; численные формулы superseded для prototype v1.0
 **Автор:** Lindy
 **Дата:** 30 июл 2026
 
@@ -22,6 +22,8 @@
 ---
 
 ## 4.0 Ключевые принципы боя
+
+> **Authoritative formula contract:** [`04-combat-formula-reconciliation.md`](04-combat-formula-reconciliation.md) v1.0. Он разрешает численные противоречия этого design-scope документа и является источником истины для prototype code/tests.
 
 Всё, что здесь описано, должно поддерживать эти принципы.
 

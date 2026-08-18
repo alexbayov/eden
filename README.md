@@ -2,90 +2,69 @@
 
 > Одиночная браузерная тактическая RPG в жанре пошагового постапокалипсиса для Яндекс.Игр.
 
-**Elevator pitch:** пошаговый бой с прицельными выстрелами, база с крафтом, вылазки по системе энергии, и герой, которого нельзя убить — но каждая смерть стоит.
-
----
+**Elevator pitch:** прицельный пошаговый бой, база с крафтом, вылазки и герой, которого нельзя убить — но каждая смерть стоит.
 
 ## Статус проекта
 
-📖 **Фаза 1 — Дизайн-документация.** Пишем Game Bible до старта кодинга.
+**Текущий статус: M3-B runtime alpha; gate закрыт.** В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression и schema-v4 local save. Exactly-once reward claim проверяется только в обычном application flow; localStorage-save защищён от corruption и обычных flow-ошибок валидацией, но не защищён от ручного rollback/редактирования. Для anti-tamper и authoritative leaderboards позже потребуется cloud/server save. M3-B strict save validation подтверждена; browser E2E и performance QA остаются pending. Это ещё **не готовый MVP**: отсутствуют полноценные 4 зоны, полный production-контент, финальная экономика, browser E2E и платформенные интеграции.
 
-**Владелец продукта:** Alex Bayov (@alexbayov)
-**AI Chief of Staff / документатор:** Lindy
-**Старт документации:** 30 июля 2026
+Первый публичный релиз планируется как полный MVP на 10–15 часов основного контента, с desktop + mobile с первого playable. Производственная реализация идёт последовательно по M2/M3/M4/M5 gates.
 
----
+## Утверждённые решения
 
-## Утверждённые ключевые решения
+- Combat MVP: 6 body parts, postures, statuses, Overwatch, armor/durability/malfunctions.
+- Монетизация без P2W и без tempo-бонусов: только добровольная реклама за неигровую/несиловую награду и косметика, если это совместимо с платформой.
+- Нарратив: «Время» как мета-антагонист и «Восход» как локальный источник миссий.
+- `docs/04-combat-system.md` требует отдельного formula reconciliation с `code/src/game/combat.ts` до production.
 
-| # | Решение | Значение |
-|---|---------|----------|
-| Платформа | Яндекс.Игры (HTML5, desktop + mobile) | ✅ |
-| Движок | **Phaser 3 + TypeScript** | ✅ |
-| UI-слой | **Preact + Framer Motion + Lucide** поверх canvas | ✅ |
-| Перспектива | Изометрия, статичная камера, 2D | ✅ |
-| Режим | Single-player + async лидерборды | ✅ |
-| Тон | Суровый постапок со светом и надеждой | ✅ |
-| Оружие | Советская классика (реальные имена) + фиктивные для западного | ✅ |
-| Сессия | 30-40 мин ежедневно через систему энергии | ✅ |
-| Расширение сессии | Реклама + донат-валюта + Premium (до 1+ ч) | ✅ |
-| Прогрессия | 1 очко навыка за уровень + разблокировка зон/оружия | ✅ |
-| Крафт | Мелочь = 100%, оружие = %-шанс, мастер-рецепты за донат/экстра | ✅ |
-| Мотивация | Строить/апгрейдить базу; уникальные ресурсы в тяжёлых зонах | ✅ |
-| Антагонист | **A (Время) основной + B (Мародёры) как источник миссий** | ✅ |
-| Смерть | -20% XP до next-level, -30% обычных / -1 редкий ресурс, +6ч мира, -10 энергии | ✅ |
-| MVP | 10-15 часов + бесконечная реиграбельность через ежедневки | ✅ |
-| Герой | Кастомизация: имя + минимальный внешний вид | ✅ |
+## Запуск code prototype
 
----
-
-## Структура репозитория
-
+```bash
+cd code
+npm install
+npm run dev
 ```
+
+Проверки:
+
+```bash
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+Фактический локальный package baseline: Phaser 4.2.1, TypeScript, Preact, Vite, Vitest. Решение Phaser 3/4 для production ещё открыто; не путать его с утверждением старых документов.
+
+## Документация
+
+1. [`docs/00-index.md`](docs/00-index.md) — оглавление, статусы, approved decisions и source of truth.
+2. [`docs/00-critical-audit.md`](docs/00-critical-audit.md) — read-only аудит и P0/P1.
+3. [`docs/20-mvp-scope-and-roadmap.md`](docs/20-mvp-scope-and-roadmap.md) — scope первого публичного релиза.
+4. [`docs/04-combat-system.md`](docs/04-combat-system.md) — полный combat scope, пока с обязательной сверкой формул.
+5. [`docs/09-base-and-home-systems.md`](docs/09-base-and-home-systems.md), [`docs/10-exploration-and-zones.md`](docs/10-exploration-and-zones.md), [`docs/11-enemies-and-ai.md`](docs/11-enemies-and-ai.md), [`docs/12-economy-and-balance.md`](docs/12-economy-and-balance.md).
+6. [`docs/13-narrative-and-setting.md`](docs/13-narrative-and-setting.md), [`docs/14-ui-ux-and-art-direction.md`](docs/14-ui-ux-and-art-direction.md), [`docs/15-audio-design.md`](docs/15-audio-design.md), [`docs/16-monetization.md`](docs/16-monetization.md).
+7. [`docs/17-engineering-tdd.md`](docs/17-engineering-tdd.md), [`docs/18-qa-test-plan.md`](docs/18-qa-test-plan.md), [`docs/19-art-and-design-brief.md`](docs/19-art-and-design-brief.md).
+
+Старые документы сохранены и не удалены; их применимость определяется порядком source of truth в индексе.
+
+## Реалистичный roadmap
+
+1. Formula reconciliation между дизайном и combat prototype.
+2. Vertical slice на desktop/mobile: база → зона 1 → бой → лут/крафт → сохранение.
+3. Production MVP: 4 зоны, база, экономика, 6 типов врагов, финал на 10–15 часов.
+4. QA/balance/release candidate без P0 и без платной силы/темпа.
+5. Post-MVP: дополнительные зоны, narrative fragments, accessibility и косметика после platform review.
+
+## Репозиторий
+
+```text
 eden/
-├── README.md              ← ты здесь
-├── docs/                  ← Game Bible (живой дизайн-документ)
-│   ├── 00-index.md              оглавление всех разделов
-│   ├── 01-vision-and-pillars.md Vision v0.2 (утверждено)
-│   ├── 01-critic-vision.md      критический разбор Vision по AAA-референсам
-│   ├── 02-critic-engine.md      обоснование выбора движка
-│   ├── 03-core-gameplay-loop.md энергия, ежедневки, сессия
-│   ├── 13-narrative-antagonist-options.md сюжетные варианты
-│   └── ...                       дальше по мере обсуждения
-├── design-data/           ← JSON: оружие, монстры, лут, рецепты (позже)
-├── art/                   ← мокапы, референсы (позже)
-└── code/                  ← Phaser проект (когда дойдём до кода)
+├── README.md
+├── docs/       ← живая Game Bible
+├── code/       ← существующий combat prototype
+├── design-data/
+└── art/
 ```
 
----
-
-## С чего начать чтение
-
-1. [`docs/00-index.md`](docs/00-index.md) — оглавление и статусы
-2. [`docs/01-vision-and-pillars.md`](docs/01-vision-and-pillars.md) — Vision v0.2 (что мы делаем и почему)
-3. [`docs/01-critic-vision.md`](docs/01-critic-vision.md) — что не так с Vision (subagent-critic)
-4. [`docs/02-critic-engine.md`](docs/02-critic-engine.md) — почему Phaser 3
-5. [`docs/03-core-gameplay-loop.md`](docs/03-core-gameplay-loop.md) — как выглядит игровой день
-6. [`docs/13-narrative-antagonist-options.md`](docs/13-narrative-antagonist-options.md) — 4 варианта антагониста + выбор
-
----
-
-## Дальше в работе
-
-- 📝 **Раздел 04 — Combat System** (пошаговая боёвка с прицелом частей тела)
-- 🔬 **Combat Critic** по референсам Fallout 1-2, ATOM RPG, Underrail, XCOM 2, Wasteland 3, Jagged Alliance 2
-- Затем: 05 Character & Progression, 06 Weapons, 07 Inventory, 08 Crafting
-
----
-
-## Референсы, на которые опираемся
-
-- **Cold Zero: The Last Stand** — постановка изометрии
-- **Fallout 1-2 & New Vegas** — VATS-подобный прицел, тон, юмор
-- **ATOM RPG** — постсоветская эстетика, крафт
-- **Underrail** — глубокие билды, механика попадания, армор по частям тела
-- **STALKER** — атмосфера, аномалии
-- **Metro Exodus** — верстак, реализм
-- **Death Stranding** — лорно интегрированная смерть
-- **This War of Mine** — свет сквозь мрак
-- **Lineage 2** — ощущение долгой прогрессии
+Состояние рабочих изменений: локальные изменения не закоммичены и не отправлены в remote.

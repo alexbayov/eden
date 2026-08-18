@@ -1,0 +1,1 @@
+{"contentVersion":1,"kind":"recipes","entries":[{"id":"bandage","name":"Бинт","node":"workbench","nodeLevel":1,"cost":{"cloth":1},"output":{"itemId":"field-bandage","quantity":1},"description":"Простой перевязочный материал."}]}
