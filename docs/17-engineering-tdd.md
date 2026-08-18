@@ -1,6 +1,6 @@
 # 17 — Engineering TDD
 
-**Статус:** M3-B current state: strict save validation implemented; browser E2E/performance pending, 17 августа 2026.
+**Статус:** M3-C UX remediation implemented; browser E2E/performance and manual mobile QA unverified, 18 августа 2026.
 
 ## Фактическое M3-B состояние
 
@@ -9,6 +9,8 @@
 - Offline `localStorage` save защищён от corruption и обычных flow-ошибок: malformed shape, неизвестные campaign/item/equipment IDs, невозможные stack/weight/count/durability/slot/link значения отклоняются. Это **не** tamper-resistance: пользователь может вручную откатить или изменить localStorage.
 - Anti-tamper и authoritative leaderboards требуют будущего authoritative cloud/server save; это не часть текущего M3-B.
 - M3-B strict runtime-catalog save validation подтверждена; browser E2E и performance QA остаются pending.
+- M3-C ships its CSS as the first shipped change in the application bundle. Tactical controls are model-driven: weapon maintenance is gated by player turn and domain preconditions; the narrow-phone move recommendation cap is application behavior at `<=430px`, not CSS clipping.
+- M3-C browser geometry, 390x844 rendering, and manual mobile/browser QA are unverified. Static CSS and view-model tests do not establish rendered geometry or device interaction.
 
 ## Реализованные инженерные инварианты
 
@@ -19,4 +21,4 @@
 - Base repair operates on the selected weapon or damaged armor instance and synchronizes the linked combat state.
 - Equipment content validates bounded modifiers and ships distinct non-zero ammo examples.
 
-Automated suite: 11 files / 66 tests. Final gate commands: `lint`, `typecheck`, `test`, and `build` pass locally; browser E2E and performance remain pending.
+Automated suite: 15 files / 121 tests. Final gate commands: `lint`, `typecheck`, `test`, and `build` pass locally; browser E2E, geometry verification, performance, and manual mobile QA remain unverified.

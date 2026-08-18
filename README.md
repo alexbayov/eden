@@ -6,7 +6,7 @@
 
 ## Статус проекта
 
-**Текущий статус: M3-B runtime alpha; gate закрыт.** В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression и schema-v4 local save. Exactly-once reward claim проверяется только в обычном application flow; localStorage-save защищён от corruption и обычных flow-ошибок валидацией, но не защищён от ручного rollback/редактирования. Для anti-tamper и authoritative leaderboards позже потребуется cloud/server save. M3-B strict save validation подтверждена; browser E2E и performance QA остаются pending. Это ещё **не готовый MVP**: отсутствуют полноценные 4 зоны, полный production-контент, финальная экономика, browser E2E и платформенные интеграции.
+**Текущий статус: M3-C UX/QA pass; gate закрыт по code review.** В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression, schema-v4 local save и responsive/a11y UX layer. Есть 15 test files / 121 automated tests. Browser/device E2E, rendered 390×844 geometry, performance profiling и platform integration остаются pending. Это ещё **не готовый MVP**: отсутствуют полноценные 4 зоны, полный production-контент, финальная экономика, browser E2E и платформенные интеграции.
 
 Первый публичный релиз планируется как полный MVP на 10–15 часов основного контента, с desktop + mobile с первого playable. Производственная реализация идёт последовательно по M2/M3/M4/M5 gates.
 

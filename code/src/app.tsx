@@ -17,7 +17,6 @@ import {
   type RecipeDefinition,
 } from "./game/base";
 import {
-  createCampaign,
   firstDeathReturn,
   missionVictory,
   returnFromMission,
@@ -71,7 +70,6 @@ import {
   defensiveCover,
   findReachable,
   getAttack,
-  gridDistance,
   hasLineOfSight,
   isAlive,
   performCombatAttack,
@@ -91,6 +89,14 @@ import {
   type EquipmentCatalog,
   weaponById,
 } from "./game/equipment-content";
+import {
+  buildCombatScreen,
+  buildEquipmentState,
+  type CombatControlId,
+  type MoveOption,
+} from "./game/combat-view";
+import { selectBootView } from "./game/boot-view";
+import "./app.css";
 
 type Phase = "player" | "enemy" | "victory" | "defeat";
 interface Catalog {
@@ -162,12 +168,6 @@ const itemLabel = (id: string, catalog: Catalog) =>
   catalog.equipment.armor.find((item) => item.id === id)?.name ??
   id;
 
-const armorSummary = (unit: Unit | undefined) =>
-  unit?.armor
-    ? Object.entries(unit.armor.reduction)
-        .map(([part, amount]) => `${part} −${amount}`)
-        .join(", ") || "нет защиты"
-    : "нет брони";
 const repairTarget = (
   inventory: NonNullable<SaveData["inventory"]>,
   hero: Unit | undefined,
@@ -218,12 +218,27 @@ export function App() {
   const [selectedBackpackItem, setSelectedBackpackItem] = useState<
     string | null
   >(null);
+  const [movesExpanded, setMovesExpanded] = useState(false);
+  const disclosureRef = useRef<HTMLButtonElement>(null);
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window === "undefined" ? 0 : window.innerWidth),
+  );
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
+  const bootView = selectBootView({
+    arena,
+    catalog,
+    save,
+    recovery: recovery
+      ? { message: recovery.error.message, content: recovery.content }
+      : null,
+    log,
+  });
+  const campaign = bootView.ready?.campaign ?? LOADING_CAMPAIGN;
   const campaignMissions = catalog?.missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId }));
-  const campaign =
-    save?.campaign ??
-    (catalog && campaignMissions
-      ? createCampaign(campaignMissions, catalog.arenas.catalogId)
-      : LOADING_CAMPAIGN);
   const inventory = save?.inventory;
   const base = save?.base;
   const hero = units.find((unit) => unit.id === "hero");
@@ -418,9 +433,13 @@ export function App() {
     );
      const saved = persist(next);
      if (!saved) return;
-     setTargetId(null);
-     setHover(null);
-     setLog(`Перемещение: −${cost} ОЧ.`);
+      setTargetId(null);
+      setHover(null);
+      /* Collapse the full cell list after a move so the panel stays compact. */
+      setMovesExpanded(false);
+      requestAnimationFrame(() => disclosureRef.current?.focus());
+      setLog(`Перемещение: −${cost} ОЧ.`);
+
   }
   function changePosture(next: Posture) {
     if (!hero || phase !== "player") return;
@@ -620,6 +639,7 @@ export function App() {
      if (!persist(initialUnits(selectedArena, catalog.equipment, inventory, units), "player", nextCampaign, inventory, base, 1, save?.rngState ?? 0, selectedArena)) return;
      setTargetId(null);
     setHover(null);
+    setMovesExpanded(false);
     setLog(`Миссия началась: ${selected.name}.`);
   }
   function openMissionSelect() {
@@ -937,12 +957,12 @@ const arenas = await loadArenaCatalog(
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   });
-  if (recovery)
+  if (bootView.phase === "recovery" && recovery)
     return (
       <main class="game-shell recovery" aria-labelledby="recovery-title">
         <section class="card">
           <span class="label">{recovery.content ? "CONTENT RECOVERY" : "SAVE RECOVERY"}</span>
-          <h1 id="recovery-title">{recovery.content ? "Контент кампании не загружен" : "Сохранение не загружено"}</h1>
+          <h1 id="recovery-title">{bootView.heading}</h1>
           <p>
             {recovery.content
               ? "Загрузка остановлена: каталог кампании содержит недопустимые cross-reference. Прогрессия не запускалась."
@@ -990,17 +1010,37 @@ const arenas = await loadArenaCatalog(
         </section>
       </main>
     );
-  if (!arena || !catalog || !save || !inventory || !base)
+  if (bootView.loading || !arena || !catalog || !save || !inventory || !base)
     return (
-      <main class="game-shell">
-        <h1>Загрузка убежища…</h1>
-        <p aria-live="polite">{log}</p>
+      <main class="game-shell loading" data-boot-phase={bootView.phase}>
+        <h1>{bootView.heading}</h1>
+        <p role="status" aria-live={bootView.live}>
+          {bootView.message}
+        </p>
       </main>
     );
   const home = campaign.screen !== "mission";
   const mission = activeMission ?? catalog.missions[0];
   const equipment = inventory.equipment;
+  const equipmentView = buildEquipmentState(hero, (itemId) => itemLabel(itemId, catalog));
   const repairTargets = repairTarget(inventory, hero);
+  const combatScreen = buildCombatScreen({
+    hero,
+    units,
+    cover: arena.cover.map((entry) => ({ ...entry, kind: entry.type })),
+    reachability,
+    phase,
+    targetable,
+    targetId,
+    expanded: movesExpanded,
+    viewportWidth,
+    labelFor: (itemId) => itemLabel(itemId, catalog),
+  });
+  const moveButtons: MoveOption[] = movesExpanded
+    ? [...combatScreen.moves.recommended, ...combatScreen.moves.remaining]
+    : combatScreen.moves.recommended;
+  const runCombatControl = (id: CombatControlId) =>
+    id === "reload" ? reload() : clearJam();
   if (home)
     return (
       <main class="game-shell">
@@ -1069,27 +1109,16 @@ const arenas = await loadArenaCatalog(
               <button onClick={medbay}>МЕДОТСЕК — БИНТ ИЗ STASH</button>
               <button onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
             </div>
-            <h3>Боевая экипировка</h3>
-            <p>
-              Оружие: <b>{hero?.weaponState?.name ?? "не экипировано"}</b> ·
-              боеприпас {hero?.weaponState?.ammoId ?? "—"} · магазин{" "}
-              {hero?.weaponState?.magazine ?? 0}/
-              {hero?.weaponState?.magazineSize ?? 0} · резерв{" "}
-              {hero?.weaponState?.reserveAmmo ?? 0} · durability{" "}
-              {hero?.weaponState?.durability ?? 0}/
-              {hero?.weaponState?.maxDurability ?? 0} ·{" "}
-              {hero?.weaponState?.malfunctioned ? "ОСЕЧКА" : "исправно"}
-            </p>
-            <p>
-              Броня:{" "}
-              <b>
-                {hero?.armor?.armorId
-                  ? itemLabel(hero.armor.armorId, catalog)
-                  : "не экипирована"}
-              </b>{" "}
-              · durability {hero?.armor?.durability ?? 0}/
-              {hero?.armor?.maxDurability ?? 0} · защита: {armorSummary(hero)}
-            </p>
+            <h3>{equipmentView.title}</h3>
+            <section class="equipment-state" data-view-id={equipmentView.id}>
+              <p>
+                Оружие: <b>{equipmentView.weapon.name}</b> · боеприпас {equipmentView.weapon.ammoId} · магазин {equipmentView.weapon.magazine}/{equipmentView.weapon.magazineSize} · резерв {equipmentView.weapon.reserveAmmo} · durability {equipmentView.weapon.durability}/{equipmentView.weapon.maxDurability} · {equipmentView.weapon.status}
+              </p>
+              <p>
+                Броня: <b>{equipmentView.armor.name}</b> · durability {equipmentView.armor.durability}/{equipmentView.armor.maxDurability} · защита: {equipmentView.armor.protection}
+              </p>
+            </section>
+
             <h3>Все экземпляры</h3>
             {equipment.map((entry) => (
               <p key={entry.instanceId}>
@@ -1205,8 +1234,9 @@ const arenas = await loadArenaCatalog(
         </section>
       </main>
     );
+  /* region: combat-dom — asserted by ui-duplication.test.ts */
   return (
-    <main class="game-shell">
+    <main class="game-shell combat">
       <p class="sr-only" aria-live="polite">
         {log}. {saveStatus}
       </p>
@@ -1244,148 +1274,118 @@ const arenas = await loadArenaCatalog(
         >
           <h2 id="tactical-controls-title">Тактическое управление</h2>
           <p>
-            Карта дополняется кнопками для сенсорного управления и клавиатуры.
+            Дублирует карту для клавиатуры и касания. Все подписи видны без
+            наведения курсора.
           </p>
-          <h3>Видимые цели</h3>
-          <div class="tactical-options">
-            {aliveEnemies.map((enemy) => {
-              const visible = targetable.has(cellKey(enemy.x, enemy.y));
-              return (
+          <h3 id="tactical-targets-title">Видимые цели</h3>
+          <div class="tactical-options" role="group" aria-labelledby="tactical-targets-title">
+            {combatScreen.targets.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={option.disabled}
+                aria-pressed={option.selected}
+                aria-label={option.ariaLabel}
+                class={option.selected ? "active" : ""}
+                onClick={() => select(option.id)}
+              >
+                <b>{option.label}</b>
+                <span>{option.description}</span>
+              </button>
+            ))}
+            {combatScreen.targets.length === 0 && <p>Живых противников нет.</p>}
+          </div>
+          <h3 id="tactical-moves-title">Перемещение</h3>
+          <p class="tactical-summary">{combatScreen.moves.summary}</p>
+          <p class="sr-only" aria-live="polite">
+            {combatScreen.moves.liveMessage}
+          </p>
+          <div
+            class="tactical-options"
+            id="tactical-moves-list"
+            role="group"
+            aria-labelledby="tactical-moves-title"
+          >
+            {moveButtons.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                disabled={option.disabled}
+                aria-label={option.ariaLabel}
+                class={option.recommended ? "recommended" : ""}
+                onClick={() => move(option.x, option.y)}
+              >
+                <b>{option.label}</b>
+                <span>{option.description}</span>
+              </button>
+            ))}
+          </div>
+          {combatScreen.moves.hasMore && (
+            <button
+              ref={disclosureRef}
+              disabled={phase !== "player"}
+              type="button"
+              aria-expanded={movesExpanded}
+              aria-controls="tactical-moves-list"
+              onClick={() => setMovesExpanded(!movesExpanded)}
+            >
+              {movesExpanded
+                ? combatScreen.moves.collapseLabel
+                : combatScreen.moves.expandLabel}
+            </button>
+          )}
+          <p class="tactical-help">{combatScreen.shortcutsHint}</p>
+          <h3 id="equipment-state-title">{combatScreen.equipment.title}</h3>
+          <section
+            class="equipment-state"
+            data-view-id={combatScreen.equipment.id}
+            aria-labelledby="equipment-state-title"
+          >
+            <p>
+              Оружие: <b>{combatScreen.equipment.weapon.name}</b> · боеприпас{" "}
+              {combatScreen.equipment.weapon.ammoId} · магазин{" "}
+              {combatScreen.equipment.weapon.magazine}/
+              {combatScreen.equipment.weapon.magazineSize} · резерв{" "}
+              {combatScreen.equipment.weapon.reserveAmmo} · durability{" "}
+              {combatScreen.equipment.weapon.durability}/
+              {combatScreen.equipment.weapon.maxDurability} ·{" "}
+              {combatScreen.equipment.weapon.status}
+            </p>
+            <p>
+              Броня: <b>{combatScreen.equipment.armor.name}</b> · durability{" "}
+              {combatScreen.equipment.armor.durability}/
+              {combatScreen.equipment.armor.maxDurability} · защита:{" "}
+              {combatScreen.equipment.armor.protection}
+            </p>
+          </section>
+          {combatScreen.controlGroups.map((group) => (
+            <div
+              key={group.id}
+              class="tactical-options"
+              data-control-group={group.id}
+              role="group"
+              aria-label={group.title}
+            >
+              {group.controls.map((control) => (
                 <button
-                  key={enemy.id}
-                  disabled={!visible || phase !== "player"}
-                  aria-pressed={targetId === enemy.id}
-                  onClick={() => select(enemy.id)}
+                  key={control.id}
+                  type="button"
+                  data-control={control.id}
+                  disabled={control.disabled}
+                  aria-label={control.ariaLabel}
+                  onClick={() => runCombatControl(control.id)}
                 >
-                  {enemy.name} ({enemy.x + 1}, {enemy.y + 1}) —{" "}
-                  {enemy.intent ??
-                    (visible ? "выбрать цель" : "нет линии огня")}
+                  {control.label}
                 </button>
-              );
-            })}
-          </div>
-          <h3>Доступное перемещение</h3>
-          <div class="tactical-options">
-            {[...reachable].map((key) => {
-              const [x, y] = key.split(",").map(Number);
-              const cost = reachability.costs.get(key) ?? 0;
-              return (
-                <button
-                  key={key}
-                  disabled={phase !== "player"}
-                  onClick={() => move(x, y)}
-                >
-                  Клетка {x + 1}, {y + 1} — {cost} ОЧ
-                </button>
-              );
-            })}
-          </div>
-          <p class="tactical-help">
-            Tab/Shift+Tab: выбор кнопки; Enter/Space: действие. E: конец хода,
-            O: Overwatch, 1–6: часть тела.
-          </p>
-          <h3>Состояние экипировки</h3>
-          <p>
-            Оружие: <b>{hero?.weaponState?.name ?? "не экипировано"}</b> ·
-            боеприпас {hero?.weaponState?.ammoId ?? "—"} · магазин{" "}
-            {hero?.weaponState?.magazine ?? 0}/
-            {hero?.weaponState?.magazineSize ?? 0} · резерв{" "}
-            {hero?.weaponState?.reserveAmmo ?? 0} · durability{" "}
-            {hero?.weaponState?.durability ?? 0}/
-            {hero?.weaponState?.maxDurability ?? 0} ·{" "}
-            {hero?.weaponState?.malfunctioned ? "ОСЕЧКА" : "исправно"}
-          </p>
-          <p>
-            Броня:{" "}
-            <b>
-              {hero?.armor?.armorId
-                ? itemLabel(hero.armor.armorId, catalog)
-                : "не экипирована"}
-            </b>{" "}
-            · durability {hero?.armor?.durability ?? 0}/
-            {hero?.armor?.maxDurability ?? 0} · защита: {armorSummary(hero)}
-          </p>
-          <div class="tactical-options">
-            <button
-              disabled={!hero?.weaponState || phase !== "player"}
-              onClick={reload}
-            >
-              ПЕРЕЗАРЯДИТЬ — {hero?.weaponState?.reloadAp ?? 0} ОЧ
-            </button>
-            <button
-              disabled={!hero?.weaponState?.malfunctioned || phase !== "player"}
-              onClick={clearJam}
-            >
-              ОЧИСТИТЬ ОСЕЧКУ — 2 ОЧ
-            </button>
-          </div>
-          <div class="tactical-options">
-            <button
-              disabled={!hero?.weaponState || phase !== "player"}
-              onClick={reload}
-            >
-              ПЕРЕЗАРЯДИТЬ — {hero?.weaponState?.reloadAp ?? 0} ОЧ
-            </button>
-            <button
-              disabled={!hero?.weaponState?.malfunctioned || phase !== "player"}
-              onClick={clearJam}
-            >
-              ОЧИСТИТЬ ОСЕЧКУ — 2 ОЧ
-            </button>
-          </div>
+              ))}
+            </div>
+          ))}
         </section>
         <aside class="hud">
           <div class="card">
             <span class="label">ОПЕРАТИВНИК</span>
             <h2>{hero?.name ?? "Загрузка"}</h2>
-            <p>
-              Оружие: <b>{hero?.weaponState?.name ?? "legacy weapon"}</b> ·
-              магазин{" "}
-              <b>
-                {hero?.weaponState?.magazine ?? "—"}/
-                {hero?.weaponState?.magazineSize ?? "—"}
-              </b>{" "}
-              · резерв <b>{hero?.weaponState?.reserveAmmo ?? "—"}</b> ·
-              durability <b>{hero?.weaponState?.durability ?? "—"}%</b>
-            </p>
-            <p>
-              Броня: торс{" "}
-              {hero?.armor?.reduction?.torso ??
-                hero?.armor?.reduction?.torso ??
-                0}{" "}
-              · голова{" "}
-              {hero?.armor?.reduction?.head ??
-                hero?.armor?.reduction?.head ??
-                0}{" "}
-              · руки{" "}
-              {hero?.armor?.reduction?.arm ?? hero?.armor?.reduction?.arm ?? 0}{" "}
-              · ноги{" "}
-              {hero?.armor?.reduction?.leg ?? hero?.armor?.reduction?.leg ?? 0}
-            </p>
-            <p>
-              Оружие: <b>{hero?.weaponState?.name ?? "legacy weapon"}</b> ·
-              магазин{" "}
-              <b>
-                {hero?.weaponState?.magazine ?? "—"}/
-                {hero?.weaponState?.magazineSize ?? "—"}
-              </b>{" "}
-              · резерв <b>{hero?.weaponState?.reserveAmmo ?? "—"}</b> ·
-              durability <b>{hero?.weaponState?.durability ?? "—"}%</b>
-            </p>
-            <p>
-              Броня: торс{" "}
-              {hero?.armor?.reduction?.torso ??
-                hero?.armor?.reduction?.torso ??
-                0}{" "}
-              · голова{" "}
-              {hero?.armor?.reduction?.head ??
-                hero?.armor?.reduction?.head ??
-                0}{" "}
-              · руки{" "}
-              {hero?.armor?.reduction?.arm ?? hero?.armor?.reduction?.arm ?? 0}{" "}
-              · ноги{" "}
-              {hero?.armor?.reduction?.leg ?? hero?.armor?.reduction?.leg ?? 0}
-            </p>
+            {/* Equipment state lives only in the tactical panel's equipment-state section. */}
             <div class="hp">
               <i
                 style={{ width: `${hero ? (hero.hp / hero.maxHp) * 100 : 0}%` }}
@@ -1411,27 +1411,7 @@ const arenas = await loadArenaCatalog(
               ))}
             </div>
           </div>
-          <div class="card">
-            <span class="label">ВРАГИ</span>
-            <ul class="enemy-list">
-              {aliveEnemies.map((enemy) => (
-                <li key={enemy.id}>
-                  <button
-                    class={targetId === enemy.id ? "active" : ""}
-                    onClick={() => select(enemy.id)}
-                  >
-                    <b>{enemy.name}</b>
-                    <span>
-                      {gridDistance(hero ?? enemy, enemy)} кл. ·{" "}
-                      {targetable.has(cellKey(enemy.x, enemy.y))
-                        ? "виден"
-                        : "LOS нет"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {/* Target selection lives only in the tactical panel's «Видимые цели» group. */}
           <div class="card action-tray">
             <span class="label">ДЕЙСТВИЯ / КЛАВИАТУРА</span>
             <p>{target ? `Цель: ${target.name}` : "Выберите видимого врага"}</p>
@@ -1492,4 +1472,5 @@ const arenas = await loadArenaCatalog(
       </section>
     </main>
   );
+  /* endregion: combat-dom */
 }

@@ -18,7 +18,8 @@
 
 **М3-B:** strict save validation подтверждена; browser E2E и performance QA остаются pending. Фактический slice: одна зона, три encounter, runtime map switching и campaign/save flow. Exactly-once действует только в normal application flow. LocalStorage save защищён от corruption и обычных flow-ошибок, но не от ручного rollback/edit; anti-tamper и authoritative leaderboards требуют будущего cloud/server save.
 
-Formula reconciliation выполнен: числовые формулы Hit/Crit/Damage/Armor/AP/Overwatch/execution зафиксированы в [`04-combat-formula-reconciliation.md`](04-combat-formula-reconciliation.md); `docs/04-combat-system.md` остаётся design intent.
+**M3-C:** UX remediation shipped in CSS and application/view-model behavior on 18 августа 2026. 15 test files / 121 tests cover the static and pure-model contracts. Browser E2E, rendered geometry including 390x844, performance, and manual mobile/browser QA remain unverified.
+
 ## Approved decisions
 
 | Решение | Зафиксировано |
@@ -71,7 +72,7 @@ Formula reconciliation выполнен: числовые формулы Hit/Cri
 | 30 июл 2026 | Созданы vision, critic, loop, combat и первые системные черновики. |
 | 31 июл 2026 | Обновлены progression, weapons, inventory, crafting. |
 | 17 авг 2026 | Добавлен critical audit, нормализованы 03/09–20, зафиксированы MVP, no-P2W, code prototype и formula reconciliation; README обновлён. |
-| 17 авг 2026 | Добавлен `04-combat-formula-reconciliation.md` v1.0; prototype combat, типы и тесты приведены к контракту. |
+| 18 авг 2026 | M3-C: shipped CSS remediation, model-driven combat controls and boot state; 15 test files / 121 tests documented. Browser/mobile rendered QA remains unverified. |
 
 ## Открытые решения
 
