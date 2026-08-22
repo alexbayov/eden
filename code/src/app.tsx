@@ -1,6 +1,9 @@
-import Phaser from "phaser";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { TacticalScene, type SceneState } from "./game/TacticalScene";
+import {
+  createCombatRuntime,
+  type CombatRuntime,
+  type SceneState,
+} from "./game/combat-runtime";
 import {
   loadArenaCatalog,
   loadArenaManifest,
@@ -18,7 +21,9 @@ import {
 } from "./game/base";
 import {
   firstDeathReturn,
+  canRetreatFromMission,
   missionVictory,
+  retreatFromMission,
   returnFromMission,
   retryMission as retryCampaignMission,
   startMission,
@@ -96,6 +101,7 @@ import {
   type MoveOption,
 } from "./game/combat-view";
 import { selectBootView } from "./game/boot-view";
+import { resolveCombatShortcut } from "./game/input-gating";
 import "./app.css";
 
 type Phase = "player" | "enemy" | "victory" | "defeat";
@@ -187,7 +193,7 @@ const repairCostText = (
 
 export function App() {
   const host = useRef<HTMLDivElement>(null);
-  const game = useRef<Phaser.Game | null>(null);
+  const game = useRef<CombatRuntime | null>(null);
   const timer = useRef<number | null>(null);
   const inFlight = useRef(false);
   const latest = useRef<{
@@ -406,10 +412,7 @@ export function App() {
       ? (reachability.paths.get(cellKey(hover.x, hover.y)) ?? [])
       : [],
   };
-  const updateScene = () =>
-    (
-      game.current?.scene.getScene("tactical") as TacticalScene | undefined
-    )?.updateState(sceneState);
+  const updateScene = () => game.current?.updateState(sceneState);
   function select(id: string) {
     const unit = units.find((candidate) => candidate.id === id);
     if (!unit || !isAlive(unit) || phase !== "player") return;
@@ -595,8 +598,8 @@ export function App() {
           : "Ваш ход: ОЧ восстановлены.",
     );
   }
-  function endTurn(overwatch = false) {
-    if (!save || !canBeginTransition(inFlight.current, phase)) return;
+   function endTurn(overwatch = false) {
+     if (!save || campaign.screen !== "mission" || !canBeginTransition(inFlight.current, phase)) return;
     const snapshot = overwatch
       ? units.map((unit) =>
           unit.id === "hero"
@@ -624,12 +627,21 @@ export function App() {
       300,
     );
   }
-  function activateOverwatch() {
-    if (!hero || hero.ap < 6 || phase !== "player")
-      return setLog("Для Overwatch нужны 2 ОЧ и 4 ОЧ в резерве.");
-    endTurn(true);
-  }
-  function beginMission(missionId = campaign.mission.id) {
+   function activateOverwatch() {
+     if (!hero || campaign.screen !== "mission" || hero.ap < 6 || phase !== "player")
+       return setLog("Для Overwatch нужны 2 ОЧ и 4 ОЧ в резерве.");
+     endTurn(true);
+   }
+   function retreat() {
+     if (!inventory || !base || !save || !canRetreatFromMission(campaign) || inFlight.current || phase === "enemy") return;
+     const nextCampaign = retreatFromMission(campaign);
+     if (!persist(units, "defeat", nextCampaign, inventory, base, save.turn, save.rngState)) return;
+     setTargetId(null);
+     setHover(null);
+     setMovesExpanded(false);
+     setLog("Отступление: миссия провалена, награда не получена. Оперативник эвакуирован.");
+   }
+   function beginMission(missionId = campaign.mission.id) {
     if (!catalog || !inventory || !base) return;
     const selected = catalog.missions.find((entry) => entry.id === missionId);
     const selectedArena = selected && catalog.arenas.byId.get(selected.arenaId);
@@ -906,57 +918,52 @@ const arenas = await loadArenaCatalog(
     return () => { cancelled = true; if (timer.current) window.clearTimeout(timer.current); };
   }, [saveAdapter]);
   useEffect(() => {
-    if (
-      !arena ||
-      !host.current ||
-      game.current ||
-      campaign.screen !== "mission"
-    )
+    if (!arena || !host.current || game.current || campaign.screen !== "mission")
       return;
-    game.current = new Phaser.Game({
-      type: Phaser.AUTO,
-      parent: host.current,
-      width: 920,
-      height: 610,
-      transparent: true,
-      scene: [TacticalScene],
-      scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    });
-    game.current.events.once(Phaser.Core.Events.READY, () =>
-      game.current?.scene.start("tactical", {
-        config: arena,
-        state: sceneState,
-        events: {
-          onCellClick: (x: number, y: number) => latest.current.move(x, y),
-          onUnitClick: (id: string) => latest.current.select(id),
-          onCellHover: (x: number, y: number) => latest.current.hover(x, y),
-        },
-      }),
-    );
+    let cancelled = false;
+    void createCombatRuntime({
+      host: host.current,
+      arena,
+      state: sceneState,
+      events: {
+        onCellClick: (x: number, y: number) => latest.current.move(x, y),
+        onUnitClick: (id: string) => latest.current.select(id),
+        onCellHover: (x: number, y: number) => latest.current.hover(x, y),
+      },
+    })
+      .then((runtime) => {
+        if (cancelled) {
+          runtime.destroy();
+          return;
+        }
+        game.current = runtime;
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "неизвестная ошибка загрузки боя";
+        setSaveFailure(`Боевая сцена не загрузилась: ${message}`);
+        setLog("Боевая сцена не загрузилась. Вернитесь на базу и повторите попытку.");
+      });
     return () => {
-      game.current?.destroy(true);
+      cancelled = true;
+      game.current?.destroy();
       game.current = null;
     };
   }, [arena, campaign.screen]);
   useEffect(() => {
     updateScene();
   }, [sceneState]);
-  useEffect(() => {
-    const keydown = (event: KeyboardEvent) => {
-      if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement
-      )
-        return;
-      if (event.key.toLowerCase() === "e") endTurn();
-      if (event.key.toLowerCase() === "o") activateOverwatch();
-      const index = Number(event.key) - 1;
-      if (index >= 0 && index < 6)
-        setPart((Object.keys(ATTACKS) as BodyPart[])[index]);
-    };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  });
+   useEffect(() => {
+     const keydown = (event: KeyboardEvent) => {
+       const shortcut = resolveCombatShortcut(event, campaign.screen, phase);
+       if (!shortcut) return;
+       if (shortcut.action === "end-turn") endTurn();
+       if (shortcut.action === "overwatch") activateOverwatch();
+       if (shortcut.action === "select-body-part") setPart(shortcut.part);
+     };
+     window.addEventListener("keydown", keydown);
+     return () => window.removeEventListener("keydown", keydown);
+   });
   if (bootView.phase === "recovery" && recovery)
     return (
       <main class="game-shell recovery" aria-labelledby="recovery-title">
@@ -1041,6 +1048,9 @@ const arenas = await loadArenaCatalog(
     : combatScreen.moves.recommended;
   const runCombatControl = (id: CombatControlId) =>
     id === "reload" ? reload() : clearJam();
+  const noAmmo = Boolean(hero?.weaponState && hero.weaponState.magazine === 0 && hero.weaponState.reserveAmmo === 0);
+  const noRangedAttack = noAmmo || !hero?.weaponState || Boolean(hero?.weaponState.malfunctioned && hero.ap < 2);
+  const retreatAvailable = canRetreatFromMission(campaign) && !inFlight.current && phase !== "enemy";
   if (home)
     return (
       <main class="game-shell">
@@ -1322,8 +1332,9 @@ const arenas = await loadArenaCatalog(
           </div>
           {combatScreen.moves.hasMore && (
             <button
-              ref={disclosureRef}
-              disabled={phase !== "player"}
+               ref={disclosureRef}
+               class="disclosure"
+               disabled={phase !== "player"}
               type="button"
               aria-expanded={movesExpanded}
               aria-controls="tactical-moves-list"
@@ -1401,9 +1412,10 @@ const arenas = await loadArenaCatalog(
             </div>
             <small>{hero?.ap ?? 0}/10 ОЧ</small>
             <div class="actions">
-              {(Object.keys(POSTURES) as Posture[]).map((id) => (
-                <button
-                  class={hero?.posture === id ? "active" : ""}
+               {(Object.keys(POSTURES) as Posture[]).map((id) => (
+                 <button
+                   key={id}
+                   class={hero?.posture === id ? "active" : ""}
                   onClick={() => changePosture(id)}
                 >
                   {POSTURES[id].label}
@@ -1416,9 +1428,10 @@ const arenas = await loadArenaCatalog(
             <span class="label">ДЕЙСТВИЯ / КЛАВИАТУРА</span>
             <p>{target ? `Цель: ${target.name}` : "Выберите видимого врага"}</p>
             <div class="actions">
-              {(Object.keys(ATTACKS) as BodyPart[]).map((id, index) => (
-                <button
-                  class={part === id ? "active" : ""}
+               {(Object.keys(ATTACKS) as BodyPart[]).map((id, index) => (
+                 <button
+                   key={id}
+                   class={part === id ? "active" : ""}
                   onClick={() => setPart(id)}
                 >
                   {index + 1}. {ATTACKS[id].label}
@@ -1434,14 +1447,28 @@ const arenas = await loadArenaCatalog(
                 </small>
               </div>
             )}
-            <button
-              class="fire"
-              disabled={!target || phase !== "player"}
-              onClick={attack}
-            >
-              ОГОНЬ
-            </button>
-            <button
+             <button
+               class="fire"
+               disabled={!target || phase !== "player" || noRangedAttack}
+               onClick={attack}
+             >
+               ОГОНЬ
+             </button>
+             {noRangedAttack && (
+               <p class="combat-warning" role="status">
+                 {noAmmo
+                   ? "Боеприпасы закончились: дальняя атака и перезарядка недоступны. Отступите, чтобы выйти без награды."
+                   : "Оружие недоступно: очистка осечки требует 2 ОЧ. Отступите, чтобы выйти без награды."}
+               </p>
+             )}
+             <button
+               class="retreat"
+               disabled={!retreatAvailable}
+               onClick={retreat}
+             >
+               ОТСТУПИТЬ БЕЗ НАГРАДЫ
+             </button>
+             <button
               class="overwatch"
               disabled={phase !== "player"}
               onClick={activateOverwatch}

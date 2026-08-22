@@ -1,23 +1,2 @@
-name: Verify playable slice
-
-on:
-  push:
-  pull_request:
-
-jobs:
-  quality:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: code/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+# GitHub discovers workflows only from the repository-root .github/workflows directory.
+# The active workflow is ../../.github/workflows/quality.yml.

@@ -6,13 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "analyze:budget": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run"
   },
   "dependencies": {
-    "framer-motion": "^13.1.0",
     "phaser": "^4.2.1",
     "preact": "^10.29.7"
   },

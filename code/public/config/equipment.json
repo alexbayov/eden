@@ -2,7 +2,7 @@
   "contentVersion": 1,
   "weapons": [
     {"id":"pm","name":"ПМ","role":"pistol","baseDamage":20,"accuracyModifier":5,"critModifier":5,"penetration":0,"ammoId":"9x18","magazineSize":8,"reloadAp":3,"durabilityPerShot":1,"makeshift":false},
-    {"id":"akm","name":"АКМ","role":"rifle","baseDamage":40,"accuracyModifier":5,"critModifier":0,"penetration":0.1,"ammoId":"7x39","magazineSize":10,"reloadAp":3,"durabilityPerShot":1,"makeshift":false},
+    {"id":"akm","name":"АКМ","role":"rifle","baseDamage":16,"accuracyModifier":0,"critModifier":0,"penetration":0.1,"ammoId":"7x39","magazineSize":10,"reloadAp":3,"durabilityPerShot":1,"makeshift":false},
     {"id":"sawn-shotgun","name":"Обрез","role":"shotgun","baseDamage":32,"accuracyModifier":-5,"critModifier":5,"penetration":0,"ammoId":"shell","magazineSize":2,"reloadAp":4,"durabilityPerShot":1,"makeshift":false},
     {"id":"hornet","name":"Шершень","role":"makeshift","baseDamage":20,"accuracyModifier":-15,"critModifier":0,"penetration":0,"ammoId":"9x18","magazineSize":1,"reloadAp":2,"durabilityPerShot":2,"makeshift":true}
   ],

@@ -62,7 +62,11 @@ export function hydrateArenaUnits(arena: { units: Array<Omit<Unit, 'ap'> | Unit>
     const template: Unit = { ...rawTemplate, ap: 'ap' in rawTemplate && typeof rawTemplate.ap === 'number' ? rawTemplate.ap : 0 }
     const previous = previousUnits.find((unit) => unit.id === template.id)
     if (template.team === 'enemy') return applyEnemyArchetype({ ...template }, equipment)
-    let unit = { ...template }
+    let unit = { ...template, statuses: { ...(template.statuses ?? {}) } }
+    if (previous && previous.hp > 0) {
+      // Encounter templates own positions/equipment; the surviving hero owns HP and statuses.
+      unit = { ...unit, hp: Math.min(unit.maxHp, previous.hp), statuses: { ...(previous.statuses ?? {}) } }
+    }
     if (template.weaponState) {
       const definition = weaponById(equipment, template.weaponState.weaponId)
       const ammo = definition && equipment.ammo.find((entry) => entry.id === definition.ammoId) || undefined

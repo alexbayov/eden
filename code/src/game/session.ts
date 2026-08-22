@@ -6,7 +6,9 @@ import type { SaveAdapter, SaveData } from './save'
 import { syncEquipmentInstances } from './equipment-content'
 
 export function resolveEnemyPhase(save: SaveData, arena: ArenaConfig): SaveData {
- if (save.phase !== 'enemy') return save
+  // Enemy resolution is meaningful only for a persisted active mission snapshot. This also
+  // protects callers outside React from an impossible home/mission-select enemy transition.
+  if (save.phase !== 'enemy' || save.campaign.screen !== 'mission' || save.campaign.mission.status !== 'active') return save
  let rngState = save.rngState
  const roll = () => { const next = nextRandom(rngState); rngState = next.state; return next.value }
  const result = runEnemyTurn(save.units, arena.width, arena.height, arena.cover.map((cover) => ({ ...cover, kind: cover.type })), roll)
@@ -16,11 +18,11 @@ export function resolveEnemyPhase(save: SaveData, arena: ArenaConfig): SaveData 
  return { ...save, rngState, units, inventory: syncEquipmentInstances(reconciledInventory, units), phase: 'player', turn: save.turn + 1 }
 }
 export function beginEnemyPhase(save: SaveData): SaveData | null {
-  return save.phase === "player"
+  return save.campaign.screen === 'mission' && save.campaign.mission.status === 'active' && save.phase === "player"
     ? { ...save, activeEncounterId: save.campaign.activeMissionId, phase: "enemy" }
     : null;
 }
-export const canBeginTransition = (locked: boolean, phase: SaveData['phase']) => !locked && phase === 'player'
+export const canBeginTransition = (locked: boolean, phase: SaveData['phase'], screen: CampaignState['screen'] = 'mission') => !locked && screen === 'mission' && phase === 'player'
 export const campaignForDefeat = (campaign: CampaignState) => missionDefeat(campaign)
 export type PersistTransition = { ok: true; value: SaveData } | { ok: false; error: string }
 export function persistTransition(adapter: SaveAdapter, next: SaveData): PersistTransition {

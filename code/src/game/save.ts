@@ -274,6 +274,13 @@ const mirrorProgress = (left: Record<string, any>, right: Record<string, any>) =
 function validateCampaign(value: unknown, issues: SaveIssue[], catalog: CampaignCatalog | undefined, activeEncounterId: unknown, phase: unknown) {
   if (!record(value)) return issue(issues, "$.campaign", "объект кампании");
   if (!string(value.catalogId) || !screens.has(value.screen) || (value.activeMissionId !== null && !string(value.activeMissionId)) || (value.activeMapId !== null && !string(value.activeMapId))) issue(issues, "$.campaign", "корректное состояние кампании");
+  // Terminal battle phases are represented only by the explicit reward/return screens.
+  // Home and mission selection must always be inert player snapshots; otherwise a global
+  // combat key could resume an enemy turn after navigation.
+  if ((value.screen === "home" || value.screen === "mission-select") && phase !== "player") issue(issues, "$.phase", "home/mission-select допускают только player phase");
+  if (value.screen === "mission" && phase !== "player" && phase !== "enemy") issue(issues, "$.phase", "mission допускает только player/enemy phase");
+  if (value.screen === "reward" && phase !== "victory") issue(issues, "$.phase", "reward допускает только victory phase");
+  if (value.screen === "return" && phase !== "defeat") issue(issues, "$.phase", "return допускает только defeat phase");
   if (!Array.isArray(value.encounters) || !record(value.mission)) issue(issues, "$.campaign", "mission и encounters");
   const entries = Array.isArray(value.encounters) ? value.encounters : [];
   entries.forEach((entry, index) => checkProgressShape(entry, `$.campaign.encounters[${index}]`, issues));
