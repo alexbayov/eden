@@ -71,7 +71,9 @@ class ContentValidationError extends Error {
 |---|---|---|
 | `objective` принимает `retrieve`/`escape`, но **сводит их к `secure`** | `campaign-content.ts` `checkMission` | подлежит удалению в W6-01; до этого документ 10 честно фиксирует ограничение |
 | Составные armor id через `+` (`patched-helmet+patched-vest`) | `save.ts` `armorPartsForId`, `content.ts` `checkArmor` | реализовано: части суммируют `reduction` и `maxDurability`; все части обязаны иметь один `slot` |
-| `mission.json` и `arena.json` — legacy-файлы вне manifest | `public/config/` | оставлены как fixture; не входят в arena catalog; при добавлении в manifest обязаны пройти ту же валидацию |
+| `arena.json` — legacy-файл вне manifest | `public/config/` | оставлен как тестовая фикстура: читают `boot-view.test.ts`, `m3-shipped.test.ts`, `m3-content-alpha.test.ts`; в arena catalog не входит; при добавлении в manifest обязан пройти ту же валидацию. Учтён в §3 (4 файла карт) |
+| `mission.json` — legacy-файл вне manifest и без потребителей | `public/config/` | не читается ни одним тестом и ни одним рантайм-модулем (`missions.json` — актуальный источник миссий). Кандидат на удаление; в §3 не учтён, так как это не карта |
+| Устаревшие дубликаты карт `arena-checkpoint.json`, `arena-yard.json`, `arena-relay.json` | `public/config/` | **stale legacy-дубликаты**: несут `id` актуальных карт (`perimeter-checkpoint`, `collapsed-yard`, `relay-station`), но с расходящимися данными — например, в `arena-checkpoint.json` два стрелка КПП вместо одного и другой набор укрытий. В manifest не входят, ни одним тестом и ни одним модулем не читаются, в §3 не учтены. Риск: правка по неверному файлу. Подлежат удалению отдельным тикетом |
 | Устаревшие поля `weapon` и `armorByPart` в юнитах | `content.ts` `checkUnit` | **явно отклоняются** сообщением «legacy equipment fields are not supported» |
 
 ---
@@ -187,7 +189,7 @@ class ContentValidationError extends Error {
 
 ## 7. Реестр ассетов
 
-Вводится в W8-02. Файл `art/registry.json`.
+Вводится в W8-02. Файл `art/registry.json`. Каталог `art/` создан в `W0-03` и пуст; правила именования файлов — [`art/README.md`](../art/README.md).
 
 ```json
 {
@@ -244,7 +246,7 @@ export function nextRandom(state: number): { state: number; value: number }
 
 **Ограничение, которое нельзя скрывать:** LCG с `% 100` даёт лёгкое смещение и предсказуем. Для локальной одиночной игры это приемлемо. Для авторитетных лидербордов — нет. Замена генератора = смена контракта сохранения (изменится последовательность бросков) и требует повышения версии схемы.
 
-**Формат отчёта симулятора** (W3-01, каталог `design-data/balance/`):
+**Формат отчёта симулятора** (W3-01, каталог `design-data/balance/`; каталог создан в `W0-03` и пуст, правила — [`design-data/README.md`](../design-data/README.md)):
 
 ```json
 {
@@ -279,8 +281,8 @@ export function nextRandom(state: number): { state: number; value: number }
 | Каталог экипировки | владелец продукта | разработчик проверяет ссылки и границы |
 | Схема сохранения | ведущий разработчик | только через версию и миграцию |
 | Реестр ассетов | **не назначен** — открытое решение doc 19 | требует назначения в W8-02 |
-| Нарративные тексты | владелец продукта | ⛔ implementation spec отсутствует |
-| Аудио-реестр | владелец продукта | ⛔ implementation spec отсутствует |
+| Нарративные тексты | владелец продукта | ⛔ implementation spec отсутствует; в коде нет ни диалогов, ни NPC |
+| Аудио-реестр | владелец продукта | ⛔ implementation spec отсутствует; в репозитории нет звуковых файлов |
 
 ### 9.2 Процесс добавления контента
 
@@ -309,3 +311,5 @@ export function nextRandom(state: number): { state: number; value: number }
 | Дата | Изменение |
 |---|---|
 | 22 авг 2026 | v1.0: зафиксированы фактический envelope контента (v1), 9 видов контента с их валидаторами и объёмами, полная таблица cross-reference, контракт сохранения v4 со всеми инвариантами, правила версионирования и миграции, контракт настроек, формат реестра ассетов, контракт RNG/воспроизведения, владение данными и процесс автора контента. Отмечены известные особенности: сведение `retrieve`/`escape` к `secure`, составные armor id, legacy-файлы вне manifest. |
+| 22 авг 2026 | `W0-03`/`W0-05`: разделы 7 и 8 ссылаются на созданные каталоги `art/` и `design-data/` и их README с правилами именования. Уточнено владение нарративом и аудио: implementation spec отсутствует, контента в коде нет. Файлы `public/config/*.json` в чистке `W0-02` не затрагивались. |
+| 22 авг 2026 | §3.1: legacy-файлы вне manifest разнесены по фактическому статусу. Раньше строка упоминала только `mission.json` и `arena.json` и называла оба «fixture»; фактически фикстурой служит лишь `arena.json` (3 тестовых файла), `mission.json` не читается никем, а `arena-checkpoint.json`/`arena-yard.json`/`arena-relay.json` — stale legacy-дубликаты актуальных карт с расходящимися данными и раньше в документе не были зафиксированы вообще. |

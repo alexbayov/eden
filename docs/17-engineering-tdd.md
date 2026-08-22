@@ -1,6 +1,8 @@
 # 17 — Engineering TDD
 
-**Статус:** M3-D performance pass implemented; initial JS budget is automated, browser E2E/performance and manual mobile QA unverified, 18 августа 2026.
+**Статус:** M3-D performance pass implemented and committed (`61c991b`); initial JS budget is automated, browser E2E/performance and manual mobile QA unverified, 18 августа 2026.
+
+Единая команда проверки — `npm run verify` из `code/` (`lint` → `typecheck` → `test` → `build` → `analyze:budget`), она же используется в CI; Node 22 закреплён через `engines.node` и `code/.nvmrc` (тикет `W0-04`).
 
 ## Фактическое M3-B состояние
 
@@ -22,4 +24,6 @@
 - Base repair operates on the selected weapon or damaged armor instance and synchronizes the linked combat state.
 - Equipment content validates bounded modifiers and ships distinct non-zero ammo examples.
 
-Automated suite: 17 files / 128 tests. Final gate commands: `lint`, `typecheck`, `test`, `build`, and `analyze:budget`; browser E2E, geometry verification, performance profiling, and manual mobile QA remain unverified.
+Automated suite: 17 files / 128 tests. Final gate: `npm run verify` (`lint`, `typecheck`, `test`, `build`, `analyze:budget`); browser E2E, geometry verification, performance profiling, and manual mobile QA remain unverified.
+
+`W0-02` удалил мёртвые модули (`campaign-app.tsx`, `campaign.css`, deprecated re-export `game/config.ts`) и неиспользуемые starter-ассеты; `main.tsx` импортирует `App` напрямую. Публичные экспорты рабочих модулей не менялись: `loadArenaContent`, `parseArenaContent`, `validateArenaContent` и алиас `loadArena` остаются в `game/content.ts`. Число тестов и бюджеты бандла не изменились.

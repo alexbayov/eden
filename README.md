@@ -6,11 +6,15 @@
 
 ## Статус проекта
 
-**Текущий статус: M3-D release-readiness pass реализован, но НЕ закоммичен и НЕ отправлен в remote.**
+**Текущий статус: M3-D release-readiness pass закоммичен и находится в `origin`.**
 
-HEAD ветки `main` = `373a99f fix(M3-C): harden combat UX and loading state`. В рабочем дереве 16 изменённых и 5 новых файлов M3-D: combat hotkey gating, retreat/no-ammo protection, relay balance bounds, persistent hero condition, lazy Phaser boundary и CI-бюджет бандла. Первая задача плана — `W0-01` — зафиксировать эту работу в `origin` до любых других изменений.
+M3-D зафиксирован коммитом `61c991b feat(M3-D): harden runtime and release readiness`: combat hotkey gating, retreat/no-ammo protection, relay balance bounds, persistent hero condition, lazy Phaser boundary и CI-бюджет бандла. HEAD ветки `main` = `3f87b80 docs: add delivery plan and developer work packages`, `origin/main` — на том же коммите.
 
-В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression, schema-v4 local save и responsive/a11y UX layer. **17 test files / 128 automated tests проходят локально.** Статический бюджет бандла: initial JS 36.2 kB gzip (лимит 150), combat lazy JS 349.7 kB gzip (порог 1200).
+Тикет `W0-01` при этом закрыт **частично**: работа выведена из единственной локальной копии, но рабочее дерево не чисто, ветки и PR не было, прогона CI на коммите `61c991b` нет, и M3-D зафиксирован одним коммитом вместо четырёх — разбор по критериям в [`docs/22`](docs/22-developer-work-packages.md) §`W0-01`.
+
+В рабочем дереве есть незакоммиченные изменения тикета `W0-04` (единая команда `verify`, `engines.node`, `code/.nvmrc`, корневой CI-workflow переведён на `npm run verify` и `node-version-file`, инертный `code/.github/workflows/quality.yml` удалён) и текущего прохода `W0-02`/`W0-03`/`W0-05`.
+
+В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression, schema-v4 local save и responsive/a11y UX layer. **17 test files / 128 automated tests проходят локально.** Статический бюджет бандла: initial JS 36.2 kB gzip (лимит 150), combat lazy JS 349.7 kB gzip (порог 1200) — фактический вывод `npm run analyze:budget` на 22 августа 2026.
 
 **Что не проверено:** browser/device E2E, геометрия рендера на любом viewport (включая 390×844 и 360×640), runtime-производительность, доступность с ассистивными технологиями, платформенные интеграции. В репозитории нет headless-браузера и DOM-инфраструктуры — все 128 тестов статические и модельные. Ручных прогонов на устройствах не было.
 
@@ -31,14 +35,13 @@ npm install
 npm run dev
 ```
 
-Проверки:
+Проверки — одной командой, воспроизводящей CI:
 
 ```bash
-npm run typecheck
-npm run lint
-npm run test
-npm run build
+npm run verify
 ```
+
+Она последовательно прогоняет `lint`, `typecheck`, `test`, `build` и `analyze:budget`; любой красный шаг делает красной всю команду. Шаги можно запускать и по отдельности теми же именами. Требуется Node ≥ 22 (`engines.node`); CI берёт версию из `code/.nvmrc` (`22`). Последний прогон `verify` выполнялся локально на уже установленном `node_modules` и на Node v24; на чистом `npm ci` и на Node 22 он не проверялся.
 
 Фактический локальный package baseline: Phaser 4.2.1, TypeScript, Preact, Vite, Vitest. Решение Phaser 3/4 для production ещё открыто; не путать его с утверждением старых документов.
 
@@ -85,10 +88,13 @@ npm run build
 ```text
 eden/
 ├── README.md
-├── docs/       ← живая Game Bible + пакет разработки 21–24
-└── code/       ← существующий combat prototype (Phaser + Preact + TS)
+├── docs/           ← живая Game Bible + пакет разработки 21–24
+├── code/           ← существующий combat prototype (Phaser + Preact + TS)
+├── design-data/    ← отчёты симулятора баланса, perf и ручной QA (пуст)
+├── art/            ← исходники ассетов и их реестр (пуст, ассетов нет)
+└── .github/        ← CI workflow (lint/typecheck/test/build/budget)
 ```
 
-Каталоги `design-data/` и `art/` пока **не созданы**: они появятся в тикетах `W0-03` (структура), `W3-01` (отчёты симулятора), `W8-02` (реестр ассетов).
+`design-data/` и `art/` созданы тикетом `W0-03` и **пусты**: назначение, структура и правила именования описаны в [`design-data/README.md`](design-data/README.md) и [`art/README.md`](art/README.md). Наполняются в `W3-01` (отчёты симулятора), `W1-06` (perf), `W2-06` (QA) и `W8-02` (реестр ассетов). Production-ассетов в репозитории нет ни одного.
 
-**Состояние рабочих изменений:** локальные изменения M3-D не закоммичены и не отправлены в remote. Это первая задача плана (`W0-01`).
+**Состояние рабочих изменений:** M3-D закоммичен и отправлен (`61c991b`), `W0-01` закрыт частично — рабочее дерево не чисто, ветки/PR и прогона CI на коммите не было. В рабочем дереве не закоммичен тикет `W0-04` и текущий проход `W0-02`/`W0-03`/`W0-05`.

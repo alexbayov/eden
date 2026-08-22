@@ -1,2 +1,0 @@
-# GitHub discovers workflows only from the repository-root .github/workflows directory.
-# The active workflow is ../../.github/workflows/quality.yml.

@@ -1,6 +1,8 @@
 # 20 — MVP Scope & Roadmap
 
-**Статус:** M3-D performance pass implemented; strict save validation and deterministic balance bounds confirmed, initial bundle budget automated, browser E2E/performance pending, 18 августа 2026.
+**Статус:** M3-D performance pass implemented and committed (`61c991b`, в `origin`); strict save validation and deterministic balance bounds confirmed, initial bundle budget automated, browser E2E/performance pending, 18 августа 2026.
+
+**Разрыв до полного MVP.** Реализованный слайс — 1 зона из 4, 3 архетипа врага из 6, 2 ресурса из 8, 1 рецепт, 1 улучшение базы, без прогрессии уровней, без штрафа смерти, без туториала, без финальной миссии, без ассетов, аудио и платформенных интеграций. Порядок закрытия разрыва — [`21-delivery-plan-and-backlog.md`](21-delivery-plan-and-backlog.md).
 
 ## Фактический M3-B scope
 
@@ -30,5 +32,8 @@
 ## За пределами M3-B alpha
 
 - Вторая зона, открытый мир, procedural maps, non-combat routes и repeatable contracts.
-- Новые objective mechanics: `secure` пока использует существующую eliminate-all combat resolution.
+- Новые objective mechanics: единственное условие победы в коде — `victoryFor` (все враги мертвы); `secure` является только подписью цели и завершается той же зачисткой. Реальный objective runtime — `W6-01`.
+- Прогрессия уровней/навыков/перков: `campaign.xp` копится, но ни на что не влияет (`W4`).
+- Штраф смерти: поражение не отнимает XP, ресурсы или предметы; формула — решение D-01, реализация `W4-02`/`W5-05`.
 - Energy, ads, premium currency и любые monetization mechanics.
+- Аудио-слой и production-арт: в репозитории нет ни звуковых файлов, ни ассетов (docs 15, 19).
