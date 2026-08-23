@@ -6,6 +6,8 @@
 
 ## Статус проекта
 
+> **Новый разработчик — начинать с [`docs/25-developer-handoff.md`](docs/25-developer-handoff.md).** Там фактическое состояние на HEAD `f72165c` (проверенное командами), тикеты передачи `H0`–`H6`, измеренные дефекты баланса и первые 10 действий. **Раздел ниже отстаёт от git** (устаревшие HEAD `3f87b80`, «не закоммичено», 147 тестов); фактически всё описанное как незакоммиченное находится в `origin`, локально зелёные 181 vitest и 76 Playwright теста, но **CI job `e2e` на HEAD красный**. Приведение этого раздела к факту — тикет `H0`.
+
 **Текущий статус: M3-D release-readiness pass закоммичен и находится в `origin`.**
 
 M3-D зафиксирован коммитом `61c991b feat(M3-D): harden runtime and release readiness`: combat hotkey gating, retreat/no-ammo protection, relay balance bounds, persistent hero condition, lazy Phaser boundary и CI-бюджет бандла. HEAD ветки `main` = `3f87b80 docs: add delivery plan and developer work packages`, `origin/main` — на том же коммите.
@@ -74,6 +76,7 @@ npm run simulate:economy   # проход по трём encounter подряд �
 
 **Пакет разработки — начинать отсюда:**
 
+0. [`docs/25-developer-handoff.md`](docs/25-developer-handoff.md) — handoff разработчику: проверенное состояние репозитория, граница MVP, иерархия источников истины, порядок работ, тикеты `H0`–`H6`, дефекты баланса `BAL-1`…`BAL-9`, правила ветвления и критики, гейты, внешне заблокированные пакеты, чек-лист первых 10 действий.
 1. [`docs/21-delivery-plan-and-backlog.md`](docs/21-delivery-plan-and-backlog.md) — executive status, приоритеты P0/P1/P2, 8-недельный последовательный план, зависимости, риски, DoR/DoD, гейты G0–G5 и решения, требуемые от владельца продукта.
 2. [`docs/22-developer-work-packages.md`](docs/22-developer-work-packages.md) — 60 реализуемых тикетов/ТЗ в пакетах W0–W10 с целями, границами scope, контрактами API, критериями приёмки, тестами и требованиями к commit/PR.
 3. [`docs/23-data-contracts-and-content-pipeline.md`](docs/23-data-contracts-and-content-pipeline.md) — схемы контента, версионирование, cross-reference валидация, контракт сохранения и миграции, RNG/детерминизм, владение данными, процесс автора контента.
