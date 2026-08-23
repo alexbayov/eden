@@ -1,11 +1,11 @@
 # 18 — QA Test Plan
 
-**Статус:** `W1-02`…`W1-05` выполнены 23 августа 2026 (не закоммичено). Автоматическая проверяемость: **20 vitest files / 151 test** (`npm test`, из них 19 DOM-тестов в jsdom) и **7 Playwright files / 76 tests** в Chromium (`npm run test:e2e`) — все зелёные локально. Это первые фактические утверждения проекта о rendered DOM и об измеренной геометрии. `W1-06` (runtime performance profiling) и ручная mobile QA (`W2-06`) по-прежнему **не выполнены**. Матрица тестов и релизные гейты — [`24-test-matrix-and-release-gates.md`](24-test-matrix-and-release-gates.md).
+**Статус:** `W1-02`…`W1-05` выполнены 23 августа 2026 (не закоммичено); в тот же день добавлен симулятор баланса `W3-01`…`W3-03`. Автоматическая проверяемость: **21 vitest file / 181 test** (`npm test`, из них 19 DOM-тестов в jsdom) и **7 Playwright files / 76 tests** в Chromium (`npm run test:e2e`) — все зелёные локально. Это первые фактические утверждения проекта о rendered DOM и об измеренной геометрии. `W1-06` (runtime performance profiling) и ручная mobile QA (`W2-06`) по-прежнему **не выполнены**. Матрица тестов и релизные гейты — [`24-test-matrix-and-release-gates.md`](24-test-matrix-and-release-gates.md).
 
 ## Реализованное и автоматически проверяемое
 
-- **20 vitest files / 151 test** (`npm test`), разделённые на два project:
-  - project `node` (18 files / 132 tests): combat, content, save/reload, session, campaign, inventory/base, M3-B catalog/progression, shipped runtime fixtures, M3-C boot/combat-view/responsive contracts, M3-D state/retreat/balance/persistence regressions. Как и раньше — чистые функции и view-модели, без DOM.
+- **21 vitest file / 181 test** (`npm test`), разделённые на два project:
+  - project `node` (19 files / 162 tests): combat, content, save/reload, session, campaign, inventory/base, M3-B catalog/progression, shipped runtime fixtures, M3-C boot/combat-view/responsive contracts, M3-D state/retreat/balance/persistence regressions и симулятор баланса (`sim/cli.test.ts`, 30 тестов — `W3-01`/`W3-02`). Как и раньше — чистые функции и view-модели, без DOM.
   - project `dom` (2 files / 19 tests, `W1-02`): jsdom + `@testing-library/preact`, рендер настоящего Preact-шелла. См. отдельный раздел ниже.
 - Production boot сначала загружает и валидирует zone/mission/reward/item/equipment/arena catalogs; при отсутствии save начальная campaign создаётся только из первого доступного encounter активного каталога.
 - Save contract сохраняет schema v4: v3→v4 migration и legacy-default migration используют переданный validated catalog, а v4 saves проходят strict cross-field validation без изменения schema version. `home`/`mission-select` принимают только `player`; `mission` принимает только `player`/`enemy`; terminal `victory`/`defeat` допустимы только на явных `reward`/`return` экранах.
@@ -19,7 +19,8 @@
 - CI job `verify` runs `npm ci` and `npm run verify`, который последовательно выполняет `lint`, `typecheck`, `test`, `build` и `analyze:budget` (тикет `W0-04`).
 - CI job `e2e` (`needs: verify`) устанавливает Chromium с кэшем по версии Playwright, запускает `npm run test:e2e` и при падении выгружает `code/test-results/` и `code/playwright-report/` артефактом. **Не проверено фактическим прогоном на GitHub Actions** — см. §CI ниже.
 - Initial entry JavaScript is budgeted at `<=150 kB` gzip. Phaser and `TacticalScene` are lazy combat chunks and are reported separately; the current combat threshold is `1200 kB` gzip and is not treated as an unrealistic total Phaser budget.
-- Initial JS budget не затронут `W1-02`…`W1-05`: `jsdom`, `@testing-library/preact` и Playwright — только devDependencies. Фактический вывод `analyze:budget` до и после: **initial JS 36.2 kB gzip**.
+- Initial JS budget не затронут `W1-02`…`W1-05` и `W3-01`…`W3-03`: `jsdom`, `@testing-library/preact`, Playwright и `tsx` — только devDependencies, а `src/sim/` не импортируется приложением. Фактический вывод `analyze:budget` до и после: **initial JS 36.2 kB gzip**, combat lazy **349.7 kB gzip**.
+- Баланс впервые **измерен**, а не оценён (`W3-01`…`W3-03`): 200 боёв на каждую из трёх encounter настоящим `combat.ts`, отчёты в `design-data/balance/`. Симулятор не содержит собственных формул и строит mission-save настоящими переходами кампании с проверкой настоящим `validateSave`. Границы баланса как регрессии (`W3-05`) **не введены**, balance lock (`W3-04`) **не утверждён** — измерение не является ни тем, ни другим.
 
 ## DOM-тесты shell (`W1-02`, 19 тестов)
 

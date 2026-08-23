@@ -246,25 +246,48 @@ export function nextRandom(state: number): { state: number; value: number }
 
 **Ограничение, которое нельзя скрывать:** LCG с `% 100` даёт лёгкое смещение и предсказуем. Для локальной одиночной игры это приемлемо. Для авторитетных лидербордов — нет. Замена генератора = смена контракта сохранения (изменится последовательность бросков) и требует повышения версии схемы.
 
-**Формат отчёта симулятора** (W3-01, каталог `design-data/balance/`; каталог создан в `W0-03` и пуст, правила — [`design-data/README.md`](../design-data/README.md)):
+**Формат отчёта симулятора** (реализован в `W3-01`/`W3-02`, каталог `design-data/balance/` — **заполнен** 23 августа 2026, правила — [`design-data/README.md`](../design-data/README.md)). Фактическая форма, `code/src/sim/report.ts`:
 
 ```json
 {
-  "commit": "<sha>",
+  "commit": "51dc2e5ec1b3",
+  "contentCatalogId": "m3-b-arenas-v1",
   "seed": 12345,
-  "runs": 2000,
-  "arena": "relay-station",
-  "metrics": {
-    "winRate": 0.0, "turnsMean": 0.0, "turnsMedian": 0,
-    "ttkByArchetype": { "sun-defender": 0.0 },
-    "damageTakenMean": 0.0, "ammoSpentMean": 0.0,
-    "weaponDurabilityLostMean": 0.0, "armorDurabilityLostMean": 0.0,
-    "malfunctionRate": 0.0, "critRate": 0.0, "missRate": 0.0, "executionRate": 0.0
-  }
+  "runs": 200,
+  "policy": "cover-torso",
+  "mode": "isolated",
+  "turnLimit": 40,
+  "arenas": [
+    {
+      "arena": "relay-station",
+      "encounterId": "relay-station",
+      "policy": "cover-torso",
+      "metrics": {
+        "runs": 200,
+        "winRate": 0.73, "lossRate": 0.21, "ammoEmptyRate": 0.06, "turnLimitRate": 0.0,
+        "turnsMean": 3.6, "turnsMedian": 3,
+        "turns": { "count": 200, "mean": 3.6, "median": 3, "min": 1, "max": 9, "stdDev": 0.0 },
+        "ttkByArchetype": { "sun-defender": 3.7397 },
+        "ttkDetailByArchetype": { "sun-defender": { "count": 146, "mean": 3.7397, "median": 3, "min": 2, "max": 8, "stdDev": 1.3315 } },
+        "damageTakenMean": 10.965, "ammoSpentMean": 4.255,
+        "weaponDurabilityLostMean": 8.52, "armorDurabilityLostMean": 2.31,
+        "malfunctionRate": 0.1491, "critRate": 0.0841, "missRate": 0.5614, "hitRate": 0.4386, "executionRate": 0.0,
+        "shotsTotal": 851, "resolvedShotsTotal": 724, "malfunctionsTotal": 127, "killRate": 0.845
+      }
+    }
+  ],
+  "total": { "…": "те же поля по объединённому пулу боёв" },
+  "economy": { "…": "приход/сток по ресурсу, XP, бинты, константы из game/base.ts" }
 }
 ```
 
-Отчёт обязан ссылаться на коммит: числа без коммита невоспроизводимы и не являются основанием для решений.
+Отличия от первоначального плана контракта, сознательные: `arena` — не корневое поле, а элемент массива `arenas[]`, потому что отчёт всегда покрывает весь живой набор encounter и обязан давать `total` по объединённому пулу (W3-02, критерий 2); добавлены `policy`, `mode`, `turnLimit` и `contentCatalogId`, без которых числа не воспроизводимы; добавлена секция `economy` (W3-03).
+
+**Правила, обязательные к соблюдению.**
+
+1. Отчёт обязан ссылаться на коммит: числа без коммита невоспроизводимы и не являются основанием для решений. Симулятор берёт SHA из `SIMULATE_COMMIT`, затем `GITHUB_SHA`, затем `git rev-parse`; если не разрешилось — пишет `null` и Markdown прямо предупреждает, что отчёт невоспроизводим. Провенанс не выдумывается.
+2. В теле отчёта не должно быть ничего окружения: ни времени, ни путей, ни имени хоста. Дата допустима **только** в имени файла. Это то, что делает «один и тот же seed даёт побитово одинаковый отчёт» проверяемым утверждением, а не пожеланием.
+3. Рядом с JSON лежит `.md` с теми же числами. Расхождение между артефактами — дефект: читатель не должен их сверять.
 
 ---
 

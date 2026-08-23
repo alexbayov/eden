@@ -88,12 +88,11 @@ import {
 } from "./game/combat";
 import {
   loadEquipmentCatalog,
-  applyEnemyArchetype,
-  hydrateArenaUnits,
   syncEquipmentInstances,
   type EquipmentCatalog,
-  weaponById,
 } from "./game/equipment-content";
+import { createEncounterUnits } from "./game/encounter";
+import { campaignCatalogFor, campaignMissionsOf } from "./game/campaign-catalog";
 import {
   buildCombatScreen,
   buildEquipmentState,
@@ -114,20 +113,8 @@ interface Catalog {
   items: ItemDefinition[];
   equipment: EquipmentCatalog;
 }
-const initialUnits = (arena: ArenaConfig, equipment?: EquipmentCatalog, inventory?: SaveData["inventory"], previousUnits: readonly Unit[] = []) =>
-  inventory
-    ? hydrateArenaUnits({ units: arena.units.map((unit) => ({ ...unit, ap: 0 })) }, equipment!, inventory, previousUnits).map((unit) => ({
-        ...unit,
-        ap: unit.team === "player" ? AP_PER_TURN : 0,
-        posture: unit.posture ?? "stand",
-        statuses: unit.statuses ?? {},
-      }))
-    : arena.units.map((unit) => ({
-        ...(equipment ? applyEnemyArchetype({ ...unit, ap: 0 }, equipment) : unit),
-        ap: unit.team === "player" ? AP_PER_TURN : 0,
-        posture: unit.posture ?? "stand",
-        statuses: unit.statuses ?? {},
-      }));
+/** Mission-start units. Shared with the balance simulator so both build identical state. */
+const initialUnits = createEncounterUnits;
 const LOADING_CAMPAIGN: CampaignState = {
   catalogId: "loading",
   screen: "home",
@@ -149,25 +136,15 @@ const LOADING_CAMPAIGN: CampaignState = {
   claimedRewards: [],
 };
 
-const saveCatalogFor = (catalog: Catalog) => ({
-  catalogId: catalog.arenas.catalogId,
-  missions: catalog.missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId })),
-  missionIds: new Set(catalog.missions.map((mission) => mission.id)),
-  rewardIds: new Set(catalog.rewards.map((reward) => reward.id)),
-  arenaIds: new Set(catalog.arenas.all.map((arena) => arena.id)),
-  zoneIds: new Set(catalog.missions.map((mission) => mission.zoneId)),
-  itemIds: new Set(catalog.items.map((item) => item.id)),
-  itemWeightForId: (itemId: string) => catalog.items.find((item) => item.id === itemId)?.weight,
-  weaponIds: new Set(catalog.equipment.weapons.map((weapon) => weapon.id)),
-  weaponForId: (weaponId: string) => weaponById(catalog.equipment, weaponId) ?? undefined,
-  armorIds: new Set(catalog.equipment.armor.map((armor) => armor.id)),
-  armorSlotForId: (itemId: string) => catalog.equipment.armor.find((armor) => armor.id === itemId)?.slot,
-  armorForId: (armorId: string) => catalog.equipment.armor.find((armor) => armor.id === armorId),
-  ammoIds: new Set(catalog.equipment.ammo.map((ammo) => ammo.id)),
-  ammoForId: (ammoId: string) => catalog.equipment.ammo.find((ammo) => ammo.id === ammoId),
-  rewardIdForMission: (missionId: string) => catalog.missions.find((mission) => mission.id === missionId)?.rewardId,
-  arenaIdForMission: (missionId: string) => catalog.missions.find((mission) => mission.id === missionId)?.arenaId,
-});
+const saveCatalogFor = (catalog: Catalog) =>
+  campaignCatalogFor({
+    catalogId: catalog.arenas.catalogId,
+    missions: catalog.missions,
+    rewardIds: catalog.rewards.map((reward) => reward.id),
+    arenaIds: catalog.arenas.all.map((arena) => arena.id),
+    items: catalog.items,
+    equipment: catalog.equipment,
+  });
 const itemLabel = (id: string, catalog: Catalog) =>
   catalog.items.find((item) => item.id === id)?.name ??
   catalog.equipment.weapons.find((item) => item.id === id)?.name ??
@@ -244,7 +221,7 @@ export function App() {
     log,
   });
   const campaign = bootView.ready?.campaign ?? LOADING_CAMPAIGN;
-  const campaignMissions = catalog?.missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId }));
+  const campaignMissions = catalog ? campaignMissionsOf(catalog.missions) : undefined;
   const inventory = save?.inventory;
   const base = save?.base;
   const hero = units.find((unit) => unit.id === "hero");
@@ -860,8 +837,17 @@ const arenas = await loadArenaCatalog(
         const playableMissions = validatedCatalog.missions.filter((mission) => unlockedZones.has(mission.zoneId));
         if (!playableMissions.length) throw new ContentValidationError("shape", [{ path: "missions", message: "должна быть доступная encounter" }]);
         if (cancelled) return;
-        const campaignMissions = playableMissions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId }));
-           const catalogOptions = { campaignCatalog: { catalogId: arenas.catalogId, missions: campaignMissions, missionIds: new Set(playableMissions.map((entry) => entry.id)), rewardIds: new Set(validatedCatalog.rewards.map((entry) => entry.id)), arenaIds: new Set(arenas.all.map((entry) => entry.id)), zoneIds: new Set(playableMissions.map((entry) => entry.zoneId)), itemIds: new Set(items.map((entry) => entry.id)), itemWeightForId: (itemId: string) => items.find((entry) => entry.id === itemId)?.weight, weaponIds: new Set(equipment.weapons.map((entry) => entry.id)), weaponForId: (weaponId: string) => weaponById(equipment, weaponId) ?? undefined, armorIds: new Set(equipment.armor.map((entry) => entry.id)), armorSlotForId: (itemId: string) => equipment.armor.find((entry) => entry.id === itemId)?.slot === "head" || equipment.armor.find((entry) => entry.id === itemId)?.slot === "torso" ? equipment.armor.find((entry) => entry.id === itemId)?.slot : undefined, armorForId: (armorId: string) => equipment.armor.find((entry) => entry.id === armorId), ammoIds: new Set(equipment.ammo.map((entry) => entry.id)), ammoForId: (ammoId: string) => equipment.ammo.find((entry) => entry.id === ammoId), rewardIdForMission: (missionId: string) => playableMissions.find((entry) => entry.id === missionId)?.rewardId, arenaIdForMission: (missionId: string) => playableMissions.find((entry) => entry.id === missionId)?.arenaId } };
+        const campaignMissions = campaignMissionsOf(playableMissions);
+        const catalogOptions = {
+          campaignCatalog: campaignCatalogFor({
+            catalogId: arenas.catalogId,
+            missions: playableMissions,
+            rewardIds: validatedCatalog.rewards.map((entry) => entry.id),
+            arenaIds: arenas.all.map((entry) => entry.id),
+            items,
+            equipment,
+          }),
+        };
         saveAdapter.setValidationOptions(catalogOptions);
         const fallback = playableMissions[0];
         const loaded = saveAdapter.load(fallback.arenaId, catalogOptions);

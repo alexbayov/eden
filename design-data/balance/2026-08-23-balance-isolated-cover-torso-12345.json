@@ -1,0 +1,341 @@
+{
+  "commit": "51dc2e5ec1b3",
+  "contentCatalogId": "m3-b-arenas-v1",
+  "seed": 12345,
+  "runs": 200,
+  "policy": "cover-torso",
+  "mode": "isolated",
+  "turnLimit": 40,
+  "arenas": [
+    {
+      "arena": "perimeter-checkpoint",
+      "encounterId": "perimeter-checkpoint",
+      "policy": "cover-torso",
+      "metrics": {
+        "runs": 200,
+        "winRate": 0.805,
+        "lossRate": 0.17,
+        "ammoEmptyRate": 0.025,
+        "turnLimitRate": 0,
+        "retreatRate": 0.025,
+        "turnsMean": 2.195,
+        "turnsMedian": 1,
+        "turns": {
+          "count": 200,
+          "mean": 2.195,
+          "median": 1,
+          "min": 1,
+          "max": 8,
+          "stdDev": 1.6664
+        },
+        "ttkByArchetype": {
+          "lone-shooter": 2.1056
+        },
+        "ttkDetailByArchetype": {
+          "lone-shooter": {
+            "count": 161,
+            "mean": 2.1056,
+            "median": 1,
+            "min": 1,
+            "max": 7,
+            "stdDev": 1.5143
+          }
+        },
+        "damageTakenMean": 8.925,
+        "damageTaken": {
+          "count": 200,
+          "mean": 8.925,
+          "median": 0,
+          "min": 0,
+          "max": 24,
+          "stdDev": 10.5033
+        },
+        "damageDealtMean": 19.635,
+        "heroHpEndMean": 15.075,
+        "ammoSpentMean": 2.415,
+        "ammoSpent": {
+          "count": 200,
+          "mean": 2.415,
+          "median": 1,
+          "min": 1,
+          "max": 9,
+          "stdDev": 2.0959
+        },
+        "ammoRemainingMean": 6.585,
+        "reloadsMean": 1.46,
+        "jamClearsMean": 0.335,
+        "weaponDurabilityLostMean": 4.83,
+        "armorDurabilityLostMean": 1.44,
+        "malfunctionRate": 0.1491,
+        "critRate": 0.0852,
+        "missRate": 0.6083,
+        "hitRate": 0.3917,
+        "executionRate": 0,
+        "shotsTotal": 483,
+        "resolvedShotsTotal": 411,
+        "malfunctionsTotal": 72,
+        "killRate": 0.805
+      }
+    },
+    {
+      "arena": "collapsed-yard",
+      "encounterId": "collapsed-yard",
+      "policy": "cover-torso",
+      "metrics": {
+        "runs": 200,
+        "winRate": 0.97,
+        "lossRate": 0.015,
+        "ammoEmptyRate": 0.015,
+        "turnLimitRate": 0,
+        "retreatRate": 0.015,
+        "turnsMean": 2.3,
+        "turnsMedian": 2,
+        "turns": {
+          "count": 200,
+          "mean": 2.3,
+          "median": 2,
+          "min": 1,
+          "max": 8,
+          "stdDev": 1.5811
+        },
+        "ttkByArchetype": {
+          "wild-rusher": 2.2371
+        },
+        "ttkDetailByArchetype": {
+          "wild-rusher": {
+            "count": 194,
+            "mean": 2.2371,
+            "median": 2,
+            "min": 1,
+            "max": 7,
+            "stdDev": 1.4486
+          }
+        },
+        "damageTakenMean": 3.59,
+        "damageTaken": {
+          "count": 200,
+          "mean": 3.59,
+          "median": 0,
+          "min": 0,
+          "max": 24,
+          "stdDev": 7.5579
+        },
+        "damageDealtMean": 23.375,
+        "heroHpEndMean": 20.41,
+        "ammoSpentMean": 2.275,
+        "ammoSpent": {
+          "count": 200,
+          "mean": 2.275,
+          "median": 2,
+          "min": 1,
+          "max": 9,
+          "stdDev": 1.7605
+        },
+        "ammoRemainingMean": 6.725,
+        "reloadsMean": 1.275,
+        "jamClearsMean": 0.41,
+        "weaponDurabilityLostMean": 4.55,
+        "armorDurabilityLostMean": 0.555,
+        "malfunctionRate": 0.1846,
+        "critRate": 0.0997,
+        "missRate": 0.4771,
+        "hitRate": 0.5229,
+        "executionRate": 0,
+        "shotsTotal": 455,
+        "resolvedShotsTotal": 371,
+        "malfunctionsTotal": 84,
+        "killRate": 0.97
+      }
+    },
+    {
+      "arena": "relay-station",
+      "encounterId": "relay-station",
+      "policy": "cover-torso",
+      "metrics": {
+        "runs": 200,
+        "winRate": 0.73,
+        "lossRate": 0.21,
+        "ammoEmptyRate": 0.06,
+        "turnLimitRate": 0,
+        "retreatRate": 0.06,
+        "turnsMean": 3.605,
+        "turnsMedian": 3,
+        "turns": {
+          "count": 200,
+          "mean": 3.605,
+          "median": 3,
+          "min": 1,
+          "max": 8,
+          "stdDev": 1.658
+        },
+        "ttkByArchetype": {
+          "lone-shooter": 1.5233,
+          "sun-defender": 3.7397
+        },
+        "ttkDetailByArchetype": {
+          "lone-shooter": {
+            "count": 172,
+            "mean": 1.5233,
+            "median": 1,
+            "min": 1,
+            "max": 5,
+            "stdDev": 0.7659
+          },
+          "sun-defender": {
+            "count": 146,
+            "mean": 3.7397,
+            "median": 3,
+            "min": 2,
+            "max": 8,
+            "stdDev": 1.3348
+          }
+        },
+        "damageTakenMean": 10.975,
+        "damageTaken": {
+          "count": 200,
+          "mean": 10.975,
+          "median": 14,
+          "min": 0,
+          "max": 24,
+          "stdDev": 9.9692
+        },
+        "damageDealtMean": 36.145,
+        "heroHpEndMean": 13.025,
+        "ammoSpentMean": 4.26,
+        "ammoSpent": {
+          "count": 200,
+          "mean": 4.26,
+          "median": 4,
+          "min": 1,
+          "max": 9,
+          "stdDev": 2.2611
+        },
+        "ammoRemainingMean": 4.74,
+        "reloadsMean": 3.4,
+        "jamClearsMean": 0.63,
+        "weaponDurabilityLostMean": 8.52,
+        "armorDurabilityLostMean": 2.31,
+        "malfunctionRate": 0.1491,
+        "critRate": 0.0841,
+        "missRate": 0.5614,
+        "hitRate": 0.4386,
+        "executionRate": 0,
+        "shotsTotal": 852,
+        "resolvedShotsTotal": 725,
+        "malfunctionsTotal": 127,
+        "killRate": 0.795
+      }
+    }
+  ],
+  "total": {
+    "runs": 600,
+    "winRate": 0.835,
+    "lossRate": 0.1317,
+    "ammoEmptyRate": 0.0333,
+    "turnLimitRate": 0,
+    "retreatRate": 0.0333,
+    "turnsMean": 2.7,
+    "turnsMedian": 2,
+    "turns": {
+      "count": 600,
+      "mean": 2.7,
+      "median": 2,
+      "min": 1,
+      "max": 8,
+      "stdDev": 1.7569
+    },
+    "ttkByArchetype": {
+      "lone-shooter": 1.8048,
+      "sun-defender": 3.7397,
+      "wild-rusher": 2.2371
+    },
+    "ttkDetailByArchetype": {
+      "lone-shooter": {
+        "count": 333,
+        "mean": 1.8048,
+        "median": 1,
+        "min": 1,
+        "max": 7,
+        "stdDev": 1.2233
+      },
+      "sun-defender": {
+        "count": 146,
+        "mean": 3.7397,
+        "median": 3,
+        "min": 2,
+        "max": 8,
+        "stdDev": 1.3348
+      },
+      "wild-rusher": {
+        "count": 194,
+        "mean": 2.2371,
+        "median": 2,
+        "min": 1,
+        "max": 7,
+        "stdDev": 1.4486
+      }
+    },
+    "damageTakenMean": 7.83,
+    "damageTaken": {
+      "count": 600,
+      "mean": 7.83,
+      "median": 0,
+      "min": 0,
+      "max": 24,
+      "stdDev": 9.9313
+    },
+    "damageDealtMean": 26.385,
+    "heroHpEndMean": 16.17,
+    "ammoSpentMean": 2.9833,
+    "ammoSpent": {
+      "count": 600,
+      "mean": 2.9833,
+      "median": 2,
+      "min": 1,
+      "max": 9,
+      "stdDev": 2.2405
+    },
+    "ammoRemainingMean": 6.0167,
+    "reloadsMean": 2.045,
+    "jamClearsMean": 0.4583,
+    "weaponDurabilityLostMean": 5.9667,
+    "armorDurabilityLostMean": 1.435,
+    "malfunctionRate": 0.1581,
+    "critRate": 0.0883,
+    "missRate": 0.5534,
+    "hitRate": 0.4466,
+    "executionRate": 0,
+    "shotsTotal": 1790,
+    "resolvedShotsTotal": 1507,
+    "malfunctionsTotal": 283,
+    "killRate": 0.8413
+  },
+  "economy": {
+    "xpPerPassMean": 111.6,
+    "xpPerPassMax": 135,
+    "bandagesPerPassMean": 1.7,
+    "bandagesNeededPerPassMean": 4.32,
+    "bandagesCraftablePerPassMean": 2.43,
+    "bandageBalancePerPassMean": -0.19,
+    "resources": [
+      {
+        "resource": "metal",
+        "income": 5.74,
+        "repairCost": 9.26,
+        "net": -3.52
+      },
+      {
+        "resource": "cloth",
+        "income": 2.43,
+        "repairCost": 0,
+        "net": 2.43
+      }
+    ],
+    "passesForAllUpgrades": null,
+    "constants": {
+      "repairMaterial": "metal",
+      "repairMaterialRate": 2,
+      "medbayHealPerLevel": 6
+    }
+  }
+}
