@@ -17,3 +17,73 @@ jobs:
           cache-dependency-path: code/package-lock.json
       - run: npm ci
       - run: npm run verify
+
+  # Browser E2E runs after `verify`, so a lint/type/unit failure is reported in seconds
+  # instead of after a browser download. Both jobs must be required for merges to `main`
+  # (branch protection is configured in repository settings, not here).
+  #
+  # NOT VERIFIED LOCALLY: this job has never executed on GitHub Actions. It was authored
+  # against the Playwright and actions/* documentation and checked only as far as a local
+  # environment allows — see `docs/18-qa-test-plan.md` §CI for exactly what was and was not
+  # confirmed. The parts that could not be tested locally are the cache hit/miss behaviour,
+  # `--with-deps` system package installation, and artifact upload.
+  e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: code
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: code/.nvmrc
+          cache: npm
+          cache-dependency-path: code/package-lock.json
+      - run: npm ci
+
+      # The browser version is pinned by @playwright/test, so the cache key is derived from
+      # package-lock.json. Bumping Playwright changes the lock hash and therefore misses the
+      # cache, which is the intended behaviour: a stale browser must never be paired with a
+      # new client.
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # On a cache hit only the OS-level libraries are installed; the browser binaries are
+      # restored from cache. `install-deps` is still required because apt packages live
+      # outside the cached directory.
+      - name: Install Chromium with system dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # `test:e2e` builds first, then playwright.config.ts starts `vite preview` on port 4317
+      # with reuseExistingServer: false.
+      - run: npm run test:e2e
+
+      # Traces, screenshots and videos are written only on failure (retain-on-failure), so
+      # this upload is what makes a red run diagnosable. `if: failure()` keeps green runs from
+      # storing empty artifacts; `if-no-files-found: ignore` covers a failure that produced no
+      # artifacts at all, such as the build step failing before any test ran.
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            code/test-results/
+            code/playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore

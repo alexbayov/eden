@@ -1,10 +1,24 @@
 /**
  * Static assertions for the M3-C responsive/accessibility CSS contract.
  *
- * Source-level checks, not rendered-layout checks: no headless browser is available in this
- * repo, so viewport rendering at 390x844 is not verified here. What is verified is that the
- * stylesheet ships, is actually imported by the shell, keeps the tactical panel visible on
- * desktop, and never falls below the 44px touch-target floor.
+ * Source-level checks, not rendered-layout checks. What is verified here is that the stylesheet
+ * ships, is actually imported by the shell, declares the breakpoints and grid areas it claims to,
+ * keeps the tactical panel visible on desktop, and never *declares* a target below the 44px floor.
+ *
+ * W1-05 UPDATE — these static checks are now complemented by actual measurements. Rendered geometry
+ * is asserted in `e2e/viewport-geometry.spec.ts`, which lays the app out in Chromium at 360x640,
+ * 390x844, 768x1024, 1280x720 and 800x400 and reads real `getBoundingClientRect` / `scrollWidth`
+ * values: no horizontal overflow on any screen at any of those sizes, and no interactive element
+ * measuring below 44x44 CSS px.
+ *
+ * Both layers are kept because neither subsumes the other. A declared `min-height: 44px` says
+ * nothing about whether the rule matched or whether a flex parent compressed the control anyway,
+ * which is what the measured suite catches. Conversely, these checks run in milliseconds on every
+ * `npm test`, cover rules for states the E2E matrix does not enter (`prefers-reduced-motion`,
+ * `:focus-visible`), and pin the intent of the stylesheet rather than one rendering of it.
+ *
+ * Neither layer is a device test: real device pixel ratios, touch input, safe-area insets and WebKit
+ * remain unverified (W2-05, W2-06).
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -110,7 +124,31 @@ describe("M3-C mobile layout for 390x844", () => {
   it("uses a single-column control grid on phones", () => {
     const phone = mediaBlock("(max-width: 760px)");
     expect(phone).toMatch(/\.tactical-options\s*\{[^}]*grid-template-columns:\s*1fr/);
-    expect(phone).toMatch(/\.battlefield,[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+    /* The battlefield collapses to one column. Matched on `.combat .battlefield` rather than the
+       older bare `.battlefield,` group selector, which no longer exists: the phone block now scopes
+       the rule to the combat shell and gives it explicit grid areas. */
+    expect(phone).toMatch(/\.combat\s+\.battlefield\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  });
+
+  it("promotes each screen's primary action to a fixed bottom bar on phones", () => {
+    /* This is the declaration behind the measured result in `e2e/viewport-geometry.spec.ts`: at
+       360x640 and 390x844 every primary CTA is within the fold *because* of these rules. Asserted
+       here too so the intent is pinned cheaply on every `npm test`, and so deleting the rule fails
+       fast rather than only in the browser suite.
+
+       Note the breakpoint this lives in: `max-width: 760px`. That is why 800x400 — 800 px wide and
+       only 400 px tall — gets no sticky bar and keeps its CTA below the fold. */
+    const phone = mediaBlock("(max-width: 760px)");
+    expect(phone).toMatch(/\.combat\s+\.action-tray\s+\.fire\s*\{[^}]*position:\s*fixed/);
+    /* Mission select, reward and return share one fixed-bar rule group. */
+    expect(phone).toContain(".campaign.mission-select .mission-card:first-child > button");
+    expect(phone).toContain(".campaign.reward .campaign-grid > .card:last-child .actions > button:first-child");
+    expect(phone).toContain(".campaign.return .campaign-grid > .card:last-child .actions > button:first-child");
+    expect(phone).toMatch(/\.campaign\.return[^{]*\{[^}]*position:\s*fixed/);
+    /* The tray reserves room for the bar, so the fixed CTA cannot cover the last control. */
+    expect(phone).toMatch(/\.combat\s+\.action-tray\s*\{[^}]*padding-bottom/);
+    /* Safe-area inset is respected rather than a bare 12px, which would sit under the home bar. */
+    expect(phone).toContain("env(safe-area-inset-bottom)");
   });
 
   it("constrains the canvas by aspect ratio so controls stay on screen", () => {

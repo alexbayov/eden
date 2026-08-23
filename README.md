@@ -12,11 +12,15 @@ M3-D зафиксирован коммитом `61c991b feat(M3-D): harden runti
 
 Тикет `W0-01` при этом закрыт **частично**: работа выведена из единственной локальной копии, но рабочее дерево не чисто, ветки и PR не было, прогона CI на коммите `61c991b` нет, и M3-D зафиксирован одним коммитом вместо четырёх — разбор по критериям в [`docs/22`](docs/22-developer-work-packages.md) §`W0-01`.
 
-В рабочем дереве есть незакоммиченные изменения тикета `W0-04` (единая команда `verify`, `engines.node`, `code/.nvmrc`, корневой CI-workflow переведён на `npm run verify` и `node-version-file`, инертный `code/.github/workflows/quality.yml` удалён) и текущего прохода `W0-02`/`W0-03`/`W0-05`.
+В рабочем дереве есть незакоммиченные изменения тикета `W0-04` (единая команда `verify`, `engines.node`, `code/.nvmrc`, корневой CI-workflow переведён на `npm run verify` и `node-version-file`, инертный `code/.github/workflows/quality.yml` удалён), прохода `W0-02`/`W0-03`/`W0-05` и тикетов `W1-01`…`W1-05` (Playwright harness, DOM-тесты в jsdom, E2E happy path/failure/save/geometry, CI job `e2e`).
 
-В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression, schema-v4 local save и responsive/a11y UX layer. **17 test files / 128 automated tests проходят локально.** Статический бюджет бандла: initial JS 36.2 kB gzip (лимит 150), combat lazy JS 349.7 kB gzip (порог 1200) — фактический вывод `npm run analyze:budget` на 22 августа 2026.
+В `code/` реализованы одна зона, три data-driven encounter, runtime map switching через validated arena catalog, campaign progression, schema-v4 local save и responsive/a11y UX layer. **19 vitest files / 147 automated tests** (`npm test`, включая 19 DOM-тестов настоящего шелла в jsdom) и **7 Playwright files / 63 browser tests** в Chromium (`npm run test:e2e`) проходят локально. Статический бюджет бандла: initial JS 36.2 kB gzip (лимит 150), combat lazy JS 349.7 kB gzip (порог 1200) — фактический вывод `npm run analyze:budget` на 23 августа 2026; DOM- и E2E-инфраструктура на бандл не влияет (dev-only).
 
-**Что не проверено:** browser/device E2E, геометрия рендера на любом viewport (включая 390×844 и 360×640), runtime-производительность, доступность с ассистивными технологиями, платформенные интеграции. В репозитории нет headless-браузера и DOM-инфраструктуры — все 128 тестов статические и модельные. Ручных прогонов на устройствах не было.
+**Что проверено в браузере (`W1-01`…`W1-05`, 23 августа 2026):** полный happy path зоны из трёх encounter, exactly-once награда, поражение/отступление/retry, reload на пяти стадиях кампании, recovery при порче сохранения, гейтинг боевых горячих клавиш, и **измеренная** геометрия на 360×640 / 390×844 / 768×1024 / 1280×720 / 800×400 — горизонтального переполнения нет, все интерактивные элементы ≥44×44 px.
+
+**Что не проверено:** runtime-производительность (`W1-06`), реальные устройства и тач-ввод (`W2-06`) — измерения `W1-05` сделаны в headless Chromium при заданном CSS-размере окна и device-тестом не являются, доступность с ассистивными технологиями, WebKit и Firefox, визуальный регресс (`W1-08`), платформенные интеграции. CI job `e2e` написан, но ни разу не выполнялся на GitHub Actions.
+
+**Найденные дефекты, зафиксированные тестами и не исправленные:** главный CTA виден без прокрутки только на базе и только в портрете (`ОГОНЬ` на 360×640 — y≈2170 при высоте окна 640 px); неизвестный `arenaId` вне активного encounter не отклоняется валидатором. Подробности — [`docs/24-test-matrix-and-release-gates.md`](docs/24-test-matrix-and-release-gates.md) §7.2 и §3.3.
 
 Это ещё **не готовый MVP**: отсутствуют 4 зоны, прогрессия персонажа, полный production-контент, финальная экономика, ассеты и платформенные интеграции. Первый публичный релиз планируется как полный MVP на 10–15 часов основного контента, desktop + mobile с первого playable.
 
@@ -42,6 +46,18 @@ npm run verify
 ```
 
 Она последовательно прогоняет `lint`, `typecheck`, `test`, `build` и `analyze:budget`; любой красный шаг делает красной всю команду. Шаги можно запускать и по отдельности теми же именами. Требуется Node ≥ 22 (`engines.node`); CI берёт версию из `code/.nvmrc` (`22`). Последний прогон `verify` выполнялся локально на уже установленном `node_modules` и на Node v24; на чистом `npm ci` и на Node 22 он не проверялся.
+
+Браузерные E2E — отдельной командой, в `verify` намеренно не входят, чтобы `verify` не зависел от скачивания браузера:
+
+```bash
+npx playwright install chromium   # один раз
+npm run test:e2e                  # 63 теста в Chromium, ~1.6 мин
+npm run test:e2e:headed           # то же, но видно приложение
+```
+
+`test:e2e` сначала собирает свежий `dist/`, затем `playwright.config.ts` поднимает `vite preview` на порту 4317 с `reuseExistingServer: false`, чтобы уже запущенный preview-сервер не маскировал этот build. Трейс, скриншот и видео пишутся в `test-results/` только при падении.
+
+`npm test` состоит из двух Vitest project: `node` (128 тестов чистых функций и view-моделей) и `dom` (19 DOM-тестов настоящего шелла в jsdom). Запустить по отдельности — `npx vitest run --project node` и `npx vitest run --project dom`.
 
 Фактический локальный package baseline: Phaser 4.2.1, TypeScript, Preact, Vite, Vitest. Решение Phaser 3/4 для production ещё открыто; не путать его с утверждением старых документов.
 

@@ -1053,7 +1053,7 @@ const arenas = await loadArenaCatalog(
   const retreatAvailable = canRetreatFromMission(campaign) && !inFlight.current && phase !== "enemy";
   if (home)
     return (
-      <main class="game-shell">
+      <main class={`game-shell campaign ${campaign.screen}`}>
         <p class="sr-only" aria-live="polite">
           {log}. {saveStatus}
         </p>

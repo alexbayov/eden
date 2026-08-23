@@ -107,13 +107,10 @@
   gap: 12px;
   min-width: 0;
 }
-.campaign-grid {
-  display: grid;
-  max-width: 1400px;
-  margin: 20px auto;
-  gap: 18px;
-  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr) minmax(260px, 0.8fr);
-}
+  .campaign-grid {
+    display: flex;
+    flex-direction: column;
+  }
 
 /* ------------------------------------------------- tactical command panel */
 /* Always rendered: it is the sole home of the equipment state and the weapon controls. */
@@ -428,15 +425,49 @@
     font-size: 12px;
     text-align: left;
   }
-  .battlefield,
-  .campaign-grid {
-    margin: 14px auto;
-    gap: 12px;
+  .combat .battlefield {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "canvas"
+      "actions"
+      "panel"
+      "hud";
   }
-  .campaign-grid {
-    display: block;
+  .combat .hud {
+    display: contents;
   }
+  .combat .hud .action-tray {
+    grid-area: actions;
+  }
+  .combat .hud > .card:not(.action-tray) {
+    grid-area: hud;
+  }
+  .combat .action-tray .fire {
+    position: fixed;
+    right: 0;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 0;
+    width: auto;
+    z-index: 20;
+    margin: 0;
+    box-shadow: 0 -4px 18px #000a;
+  }
+  .campaign.mission-select .mission-card:first-child > button,
+  .campaign.reward .campaign-grid > .card:last-child .actions > button:first-child,
+  .campaign.return .campaign-grid > .card:last-child .actions > button:first-child {
+    position: fixed;
+    right: 0;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 0;
+    width: auto;
+    z-index: 20;
+    box-shadow: 0 -4px 18px #000a;
+  }
+  .combat .action-tray {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+
   .campaign-grid > .card {
     margin-bottom: 12px;
   }
