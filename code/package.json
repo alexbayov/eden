@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "analyze:budget": "node scripts/check-bundle-budget.mjs",
-    "preview": "vite preview",
+    "preview": "vite preview --host 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
