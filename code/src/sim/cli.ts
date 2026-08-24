@@ -75,6 +75,19 @@ export interface CliOptions extends RunConfig {
   /** When false, only stdout is produced. */
   write: boolean
   quiet: boolean
+  /**
+   * Directory the content loaders read `/config/*.json` from. `undefined` means `code/public/`, i.e.
+   * the shipped catalogs, and that is the only value any command line can produce — there is
+   * deliberately no flag for it, because a report measured against non-shipped data would be
+   * indistinguishable from a real one in `design-data/balance/`.
+   *
+   * It exists for one caller: the W3-05 falsifiability test (`balance-bounds.test.ts`), which copies
+   * `public/` to a temporary directory, buffs an enemy there, and asserts the balance bounds fail on
+   * the result. Pointing the *whole* pipeline — runtime loaders, validation, mission-save, battles,
+   * report — at mutated catalogs is what makes that test evidence about the bounds rather than about
+   * a hand-edited report object.
+   */
+  publicRoot?: string
 }
 
 const MODES: readonly SimulationMode[] = ['isolated', 'chain']
@@ -265,7 +278,7 @@ export interface SimulationRun {
 }
 
 export async function runSimulation(options: CliOptions): Promise<SimulationRun> {
-  const content = await loadSimulationContent()
+  const content = await loadSimulationContent(options.publicRoot)
   const policy = policyById(options.policyId)
   const arenaResults = options.mode === 'chain' ? runChain(content, options, policy) : runIsolated(content, options, policy)
   const report = buildReport(arenaResults, options, {
