@@ -27,12 +27,30 @@ import {
   shellElement,
   stubShippedContent,
 } from "../test/dom-harness";
-import { buildSave, loadShippedContent, orderedEncounters } from "../test/campaign-save-fixtures";
+import {
+  buildSave,
+  loadShippedContent,
+  orderedEncounters,
+  readShippedConfig,
+} from "../test/campaign-save-fixtures";
+import { validateBaseUpgrades, validateRecipes } from "./campaign-content";
 import { levelForXp, skillPointsGranted } from "./progression";
 
 const content = loadShippedContent();
 const encounters = orderedEncounters(content);
 const [first] = encounters;
+
+/**
+ * Recipes and base upgrades are the two catalogs `loadShippedContent` does not expose, and the
+ * return-screen regression below needs their *button labels*. Read through the runtime validators
+ * rather than hand-written, so a renamed recipe cannot leave the assertion matching nothing.
+ */
+const unwrapContent = <T,>(result: { ok: true; value: T } | { ok: false; error: Error }, label: string): T => {
+  if (!result.ok) throw new Error(`shipped ${label} is invalid: ${result.error.message}`);
+  return result.value;
+};
+const shippedRecipes = unwrapContent(validateRecipes(readShippedConfig("recipes.json")), "recipes");
+const shippedUpgrades = unwrapContent(validateBaseUpgrades(readShippedConfig("base-upgrades.json")), "base-upgrades");
 
 describe("W1-02 combat controls", () => {
   beforeEach(() => {
@@ -244,6 +262,95 @@ describe("W4-02 death penalty on the return screen", () => {
 
     await settle(() => expect(phaseLabel(container)).toBe("ВАШ ХОД"));
     expect(persistedSave().campaign.xp).toBe(chargedXp - stated);
+  });
+});
+
+/**
+ * The return screen shares its outer layout with the base screen, so every base affordance is one
+ * `campaign.screen !== "return"` guard away from rendering behind an unresolved defeat. That is not
+ * cosmetic: repairing, healing, crafting and upgrading all write a save through `persist`, and the
+ * pending XP penalty is only charged when the player confirms the return. A player who spent stash
+ * metal here would be acting on the base before the defeat had been paid for.
+ *
+ * Addressed by accessible name, so this is a claim about what a player can reach, not about markup.
+ * Craft and upgrade labels come from the shipped catalogs rather than string literals — a renamed
+ * recipe must break the *control* case below instead of silently making these queries vacuous.
+ */
+const escapeForRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const BASE_ONLY_ACTIONS: ReadonlyArray<{ label: string; name: RegExp | string }> = [
+  { label: "ремонт", name: /^РЕМОНТ:/ },
+  { label: "медотсек", name: "МЕДОТСЕК — БИНТ ИЗ STASH" },
+  { label: "выбор миссии", name: "ВЫБРАТЬ МИССИЮ" },
+  ...shippedRecipes.map((recipe) => ({
+    label: `крафт «${recipe.id}»`,
+    name: new RegExp(`^${escapeForRegExp(recipe.name)} — `),
+  })),
+  ...shippedUpgrades.map((entry) => ({
+    label: `улучшение «${entry.id}»`,
+    name: new RegExp(`^${escapeForRegExp(entry.name)}: `),
+  })),
+];
+const equipmentStateSections = (container: Element) => container.querySelectorAll("section.equipment-state");
+
+describe("W4-02 the return screen offers no base actions before the defeat is resolved", () => {
+  beforeEach(() => {
+    clearStoredSave();
+    stubShippedContent();
+  });
+
+  it("renders no repair, medbay, mission-select, craft or upgrade control, and keeps both exits", async () => {
+    /* Stash metal is seeded so the repair and upgrade controls would have something to spend: an
+       empty stash could hide a missing guard behind a merely unaffordable action. */
+    seedRawSave(buildSave(content, { screen: "return", stashMetal: 8 }).raw);
+    const { container } = await renderApp();
+
+    expect(phaseLabel(container)).toBe("ВОЗВРАТ");
+    for (const action of BASE_ONLY_ACTIONS)
+      expect(
+        screen.queryAllByRole("button", { name: action.name }),
+        `${action.label} must not render on the return screen`,
+      ).toHaveLength(0);
+
+    /* M3-C's single-equipment-state contract, on this screen: the base readout is gated out with
+       the base actions, so nothing duplicates the combat panel's section and the count is never
+       above one. */
+    expect(equipmentStateSections(container)).toHaveLength(0);
+
+    /* The screen must not become a dead end: both documented exits survive and are operable. */
+    expect(screen.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "ПОВТОРИТЬ МИССИЮ" })).toHaveProperty("disabled", false);
+    /* And the penalty is still stated, so what is hidden is the base, not the consequence. */
+    expect(container.querySelector("p.death-penalty")).not.toBeNull();
+  });
+
+  it("finds every one of those controls on the base screen, so the queries above are not vacuous", async () => {
+    /* The control case. Without it, a renamed label would make the assertions above pass by matching
+       nothing at all — the exact failure mode a negative query invites. */
+    seedRawSave(buildSave(content, { screen: "home", stashMetal: 8 }).raw);
+    const { container } = await renderApp();
+
+    expect(phaseLabel(container)).toBe("БАЗА");
+    for (const action of BASE_ONLY_ACTIONS)
+      expect(
+        screen.queryAllByRole("button", { name: action.name }).length,
+        `${action.label} must render on the base screen`,
+      ).toBeGreaterThan(0);
+
+    /* Exactly one equipment readout once the base is live again: the guard scopes the section to a
+       screen, it does not delete it. */
+    expect(equipmentStateSections(container)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" })).toBeNull();
+  });
+
+  it("hides stash transfer and quick slots on terminal return and reward screens", async () => {
+    for (const screenName of ["return", "reward"] as const) {
+      seedRawSave(buildSave(content, { screen: screenName, stashMetal: 8 }).raw);
+      const { container } = await renderApp();
+      expect(phaseLabel(container)).toBe(screenName === "return" ? "ВОЗВРАТ" : "НАГРАДА");
+      expect(screen.queryAllByRole("button", { name: /^metal ×8 → рюкзак$/ })).toHaveLength(0);
+      expect(screen.queryAllByRole("button", { name: /^\d+: / })).toHaveLength(0);
+      clearStoredSave();
+    }
   });
 });
 

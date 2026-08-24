@@ -123,19 +123,9 @@ test.describe("W1-03 campaign happy path", () => {
     expect(encounterStatus(pending, secondEncounter.id)?.status).toBe("available");
     expect(pending.campaign.claimedRewards).toEqual([]);
 
-    /* The base panel's «ВЫБРАТЬ МИССИЮ» button is still rendered on the reward screen — the shell
-       shares one campaign layout across home/reward/return. Pressing it must not escape the
-       pending reward: the save validator refuses the transition, so the screen does not change and
-       the shell surfaces the write failure instead of silently dropping the reward. This documents
-       *observed* behaviour rather than an intended affordance; changing the layout would be a UI
-       change, which W1-03 explicitly does not make. */
-    await page.getByRole("button", { name: "ВЫБРАТЬ МИССИЮ" }).click();
-    await expect(page.locator("p.save-status").first()).toContainText("Ошибка сохранения");
-    await expect(phaseLabel(page)).toHaveText("НАГРАДА");
-    const stillPending = await readSave(page);
-    expect(stillPending.campaign.screen).toBe("reward");
-    expect(stillPending.campaign.claimedRewards).toEqual([]);
-    /* The refused write left the reward claimable rather than consuming it. */
+    /* Terminal reward screens intentionally expose only reward actions. The next encounter can be
+       entered only after claiming, returning to base, and opening Mission Select. */
+    await expect(page.getByRole("button", { name: "ВЫБРАТЬ МИССИЮ" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "ЗАБРАТЬ НАГРАДУ" })).toBeEnabled();
 
     await page.getByRole("button", { name: "ЗАБРАТЬ НАГРАДУ" }).click();

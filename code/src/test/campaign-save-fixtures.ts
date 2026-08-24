@@ -80,6 +80,14 @@ export interface SaveFixtureOptions {
   unspentSkillPoints?: number;
   /** Stash resources, so reward assertions can start from a known baseline. */
   stashMetal?: number;
+  /**
+   * Backpack contents. Both halves of the stash↔backpack transfer UI only render a control per
+   * *present* stack, so a fixture that leaves the backpack empty cannot distinguish "the control is
+   * gated out" from "there was nothing to move". Item weights are read from the shipped catalog
+   * rather than passed in, because `validateSave` rejects a stack whose weight disagrees with it.
+   */
+  backpackMetal?: number;
+  backpackItems?: ReadonlyArray<{ id: string; quantity: number }>;
 }
 
 export interface SaveFixture {
@@ -237,12 +245,23 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
   const character = characterForXp(campaign.xp, content.campaignCatalog.progression);
 
   const stashMetal = options.stashMetal ?? 0;
+  const backpackMetal = options.backpackMetal ?? 0;
+  const backpackItems = (options.backpackItems ?? []).map((entry) => {
+    const definition = content.items.find((item) => item.id === entry.id);
+    if (!definition) throw new Error(`unknown item id in fixture backpack: ${entry.id}`);
+    return { id: definition.id, quantity: entry.quantity, weight: definition.weight };
+  });
   const inventory = syncEquipmentInstances(
     {
       ...seed.inventory,
       stash: {
         ...seed.inventory.stash,
         resources: stashMetal > 0 ? [{ id: "metal" as const, quantity: stashMetal, weight: 1 }] : [],
+      },
+      backpack: {
+        ...seed.inventory.backpack,
+        resources: backpackMetal > 0 ? [{ id: "metal" as const, quantity: backpackMetal, weight: 1 }] : [],
+        items: backpackItems,
       },
     },
     units,

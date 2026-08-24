@@ -1079,6 +1079,17 @@ const arenas = await loadArenaCatalog(
       </main>
     );
   const home = campaign.screen !== "mission";
+  /**
+   * W4-02 — the base is only *actionable* on the two base screens.
+   *
+   * `reward` and `return` reuse this same campaign layout, but both hold an unresolved transition:
+   * a reward that has not been claimed, or an XP penalty that is only charged when the player
+   * confirms the return. Every base affordance writes a save through `persist`, so leaving them
+   * mounted lets a player repair, heal, craft, upgrade or reshuffle the pack *while* that
+   * transition is still pending — and, in the mission-select case, attempt to walk away from it.
+   * Scoping them to `home`/`mission-select` keeps the terminal screens to their own CTA.
+   */
+  const baseActionsAvailable = campaign.screen === "home" || campaign.screen === "mission-select";
   const mission = activeMission ?? catalog.missions[0];
   const equipment = inventory.equipment;
   const equipmentView = buildEquipmentState(hero, (itemId) => itemLabel(itemId, catalog));
@@ -1159,118 +1170,124 @@ const arenas = await loadArenaCatalog(
               Узлы: верстак L{base.workbench}, медотсек L{base.medbay}, склад L
               {base.stash}
             </p>
-            <div class="actions">
-              {repairTargets.map((target) => (
-                <button
-                  key={target.instanceId}
-                  onClick={() => repair(target.instanceId)}
-                  disabled={target.durability >= target.maxDurability}
-                >
-                  РЕМОНТ: {itemLabel(target.itemId, catalog)} —{" "}
-                  {target.durability}/{target.maxDurability},{" "}
-                  {repairCostText(target)}
-                </button>
-              ))}
-              <button onClick={medbay}>МЕДОТСЕК — БИНТ ИЗ STASH</button>
-              <button onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
-            </div>
-            <h3>{equipmentView.title}</h3>
-            <section class="equipment-state" data-view-id={equipmentView.id}>
-              <p>
-                Оружие: <b>{equipmentView.weapon.name}</b> · боеприпас {equipmentView.weapon.ammoId} · магазин {equipmentView.weapon.magazine}/{equipmentView.weapon.magazineSize} · резерв {equipmentView.weapon.reserveAmmo} · durability {equipmentView.weapon.durability}/{equipmentView.weapon.maxDurability} · {equipmentView.weapon.status}
-              </p>
-              <p>
-                Броня: <b>{equipmentView.armor.name}</b> · durability {equipmentView.armor.durability}/{equipmentView.armor.maxDurability} · защита: {equipmentView.armor.protection}
-              </p>
-            </section>
+            {baseActionsAvailable && (
+              <>
+                <div class="actions">
+                  {repairTargets.map((target) => (
+                    <button
+                      key={target.instanceId}
+                      onClick={() => repair(target.instanceId)}
+                      disabled={target.durability >= target.maxDurability}
+                    >
+                      РЕМОНТ: {itemLabel(target.itemId, catalog)} — {target.durability}/{target.maxDurability},{" "}
+                      {repairCostText(target)}
+                    </button>
+                  ))}
+                  <button onClick={medbay}>МЕДОТСЕК — БИНТ ИЗ STASH</button>
+                  <button onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
+                </div>
+                <h3>{equipmentView.title}</h3>
+                <section class="equipment-state" data-view-id={equipmentView.id}>
+                  <p>
+                    Оружие: <b>{equipmentView.weapon.name}</b> · боеприпас {equipmentView.weapon.ammoId} · магазин {equipmentView.weapon.magazine}/{equipmentView.weapon.magazineSize} · резерв {equipmentView.weapon.reserveAmmo} · durability {equipmentView.weapon.durability}/{equipmentView.weapon.maxDurability} · {equipmentView.weapon.status}
+                  </p>
+                  <p>
+                    Броня: <b>{equipmentView.armor.name}</b> · durability {equipmentView.armor.durability}/{equipmentView.armor.maxDurability} · защита: {equipmentView.armor.protection}
+                  </p>
+                </section>
 
-            <h3>Все экземпляры</h3>
-            {equipment.map((entry) => (
-              <p key={entry.instanceId}>
-                {itemLabel(entry.itemId, catalog)}:{" "}
-                <b>{equipmentDurabilityPercent(entry)}% durability</b>
+                <h3>Все экземпляры</h3>
+                {equipment.map((entry) => (
+                  <p key={entry.instanceId}>
+                    {itemLabel(entry.itemId, catalog)}: <b>{equipmentDurabilityPercent(entry)}% durability</b>
+                  </p>
+                ))}
+                <h3>Крафт</h3>
+                <div class="actions">
+                  {catalog.recipes.map((recipe) => (
+                    <button key={recipe.id} onClick={() => craftRecipe(recipe.id)}>
+                      {recipe.name} — {recipe.description}
+                    </button>
+                  ))}
+                </div>
+                <h3>Улучшения</h3>
+                <div class="actions">
+                  {catalog.upgrades.map((entry) => (
+                    <button
+                      key={entry.id}
+                      disabled={base[entry.node] >= entry.targetLevel}
+                      onClick={() => upgrade(entry.id)}
+                    >
+                      {entry.name}: {entry.description}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          {/* Gated with the base actions: every control in this card persists a save, and on the
+              reward/return screens that save would still carry the unresolved transition. */}
+          {baseActionsAvailable && (
+            <div class="card inventory-panel">
+              <span class="label">STASH ↔ РЮКЗАК</span>
+              <h2>Снаряжение вылазки</h2>
+              <p>
+                Нажмите строку, чтобы перенести одну единицу. Рюкзак имеет весовой
+                лимит; stash — нет.
               </p>
-            ))}
-            <h3>Крафт</h3>
-            <div class="actions">
-              {catalog.recipes.map((recipe) => (
-                <button key={recipe.id} onClick={() => craftRecipe(recipe.id)}>
-                  {recipe.name} — {recipe.description}
-                </button>
-              ))}
+              <h3>Stash</h3>
+              <ul>
+                {inventory.stash.resources.map((entry) => (
+                  <li key={`sr-${entry.id}`}>
+                    <button onClick={() => moveResource(entry.id, "stash")}>
+                      {entry.id} ×{entry.quantity} → рюкзак
+                    </button>
+                  </li>
+                ))}
+                {inventory.stash.items.map((entry) => (
+                  <li key={`si-${entry.id}`}>
+                    <button onClick={() => moveItem(entry.id, "stash")}>
+                      {itemLabel(entry.id, catalog)} ×{entry.quantity} → рюкзак
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h3>Рюкзак</h3>
+              <ul>
+                {inventory.backpack.resources.map((entry) => (
+                  <li key={`br-${entry.id}`}>
+                    <button onClick={() => moveResource(entry.id, "backpack")}>
+                      {entry.id} ×{entry.quantity} → stash
+                    </button>
+                  </li>
+                ))}
+                {inventory.backpack.items.map((entry) => (
+                  <li key={`bi-${entry.id}`}>
+                    <button
+                      class={selectedBackpackItem === entry.id ? "active" : ""}
+                      onClick={() => {
+                        setSelectedBackpackItem(entry.id);
+                        moveItem(entry.id, "backpack");
+                      }}
+                    >
+                      {itemLabel(entry.id, catalog)} ×{entry.quantity} → stash
+                    </button>
+                    <button onClick={() => setSelectedBackpackItem(entry.id)}>
+                      выбрать для quick slot
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h3>Quick slots</h3>
+              <div class="quick-slots">
+                {inventory.quickSlots.map((slot, index) => (
+                  <button key={index} onClick={() => assignSlot(index)}>
+                    {index + 1}: {slot ? itemLabel(slot, catalog) : "пусто"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <h3>Улучшения</h3>
-            <div class="actions">
-              {catalog.upgrades.map((entry) => (
-                <button
-                  key={entry.id}
-                  disabled={base[entry.node] >= entry.targetLevel}
-                  onClick={() => upgrade(entry.id)}
-                >
-                  {entry.name}: {entry.description}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div class="card inventory-panel">
-            <span class="label">STASH ↔ РЮКЗАК</span>
-            <h2>Снаряжение вылазки</h2>
-            <p>
-              Нажмите строку, чтобы перенести одну единицу. Рюкзак имеет весовой
-              лимит; stash — нет.
-            </p>
-            <h3>Stash</h3>
-            <ul>
-              {inventory.stash.resources.map((entry) => (
-                <li key={`sr-${entry.id}`}>
-                  <button onClick={() => moveResource(entry.id, "stash")}>
-                    {entry.id} ×{entry.quantity} → рюкзак
-                  </button>
-                </li>
-              ))}
-              {inventory.stash.items.map((entry) => (
-                <li key={`si-${entry.id}`}>
-                  <button onClick={() => moveItem(entry.id, "stash")}>
-                    {itemLabel(entry.id, catalog)} ×{entry.quantity} → рюкзак
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <h3>Рюкзак</h3>
-            <ul>
-              {inventory.backpack.resources.map((entry) => (
-                <li key={`br-${entry.id}`}>
-                  <button onClick={() => moveResource(entry.id, "backpack")}>
-                    {entry.id} ×{entry.quantity} → stash
-                  </button>
-                </li>
-              ))}
-              {inventory.backpack.items.map((entry) => (
-                <li key={`bi-${entry.id}`}>
-                  <button
-                    class={selectedBackpackItem === entry.id ? "active" : ""}
-                    onClick={() => {
-                      setSelectedBackpackItem(entry.id);
-                      moveItem(entry.id, "backpack");
-                    }}
-                  >
-                    {itemLabel(entry.id, catalog)} ×{entry.quantity} → stash
-                  </button>
-                  <button onClick={() => setSelectedBackpackItem(entry.id)}>
-                    выбрать для quick slot
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <h3>Quick slots</h3>
-            <div class="quick-slots">
-              {inventory.quickSlots.map((slot, index) => (
-                <button key={index} onClick={() => assignSlot(index)}>
-                  {index + 1}: {slot ? itemLabel(slot, catalog) : "пусто"}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
           <div class="card">
             <span class="label">MISSION SELECT</span>
             <h2>Ближняя окраина</h2>
