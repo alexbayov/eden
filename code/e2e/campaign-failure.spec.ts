@@ -67,6 +67,11 @@ test.describe("W1-03 campaign failure and retreat", () => {
       victories: 0,
       firstRewardClaimed: false,
     });
+    /* W4-02: the return screen records that this was a defeat, and states the cost before the
+       player confirms. On a fresh save that cost is zero — the first defeat is free. */
+    expect(afterDefeat.campaign.returnReason).toBe("defeat");
+    await expect(page.locator("p.death-penalty")).toContainText("Первое поражение");
+    expect(afterDefeat.campaign.firstDeathReturnUsed).toBe(false);
     /* No reward, no XP, and the next encounter stays locked. */
     expect(afterDefeat.campaign.xp).toBe(0);
     expect(afterDefeat.campaign.claimedRewards).toEqual([]);
@@ -152,7 +157,31 @@ test.describe("W1-03 campaign failure and retreat", () => {
 
     /* Unlike a defeat, retreat evacuates the operative alive. */
     expect(afterRetreat.units.find((unit) => unit.id === "hero")!.hp).toBeGreaterThan(0);
+    /* W4-02: and it is recorded as a *retreat*, with visibly different consequences. */
+    expect(afterRetreat.campaign.returnReason).toBe("retreat");
+    await expect(page.locator("p.death-penalty")).toContainText("XP не теряется");
     expect(errors).toEqual([]);
+  });
+
+  test("retreating does not consume the one free defeat", async ({ page }) => {
+    /* W4-02 criterion 5, stated as the consequence that actually matters to a player: a voluntary
+       exit already costs the reward, so it must not also spend the free-death allowance and make
+       the first real knockout expensive. */
+    await clearSave(page);
+    await seedRawSave(page, buildSave(content, { screen: "mission" }).raw);
+    await gotoApp(page);
+
+    await retreatButton(page).click();
+    await expect(phaseLabel(page)).toHaveText("ВОЗВРАТ");
+    await page.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }).click();
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+
+    const afterRetreat = await readSave(page);
+    expect(afterRetreat.campaign.firstDeathReturnUsed).toBe(false);
+    expect(afterRetreat.campaign.returnReason).toBeNull();
+    expect(afterRetreat.campaign.xp).toBe(0);
+    /* Level and XP are unchanged by the retreat. */
+    expect(afterRetreat.character).toEqual({ level: 1, xp: 0, unspentSkillPoints: 0 });
   });
 
   test("retreat is the documented way out of an ammo soft lock", async ({ page }) => {

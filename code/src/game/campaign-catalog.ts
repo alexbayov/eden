@@ -12,6 +12,7 @@
 import type { CampaignMission } from './campaign'
 import type { ItemDefinition, MissionDefinition } from './campaign-content'
 import { weaponById, type EquipmentCatalog } from './equipment-content'
+import { DEFAULT_LEVEL_CURVE, type LevelCurve } from './progression'
 import type { CampaignCatalog } from './save'
 
 export interface CampaignCatalogSources {
@@ -22,6 +23,11 @@ export interface CampaignCatalogSources {
   arenaIds: Iterable<string>
   items: readonly ItemDefinition[]
   equipment: EquipmentCatalog
+  /**
+   * Level curve from `progression.json`. Omitted only by callers with no loaded catalog (tests
+   * building a minimal fixture), which then fall back to the shipped curve mirrored in code.
+   */
+  progression?: LevelCurve
 }
 
 export const campaignMissionsOf = (missions: readonly MissionDefinition[]): CampaignMission[] =>
@@ -50,6 +56,7 @@ export function campaignCatalogFor(sources: CampaignCatalogSources): CampaignCat
     armorForId: armorFor,
     ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
     ammoForId: (ammoId: string) => equipment.ammo.find((entry) => entry.id === ammoId),
+    progression: sources.progression ?? DEFAULT_LEVEL_CURVE,
     rewardIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.rewardId,
     arenaIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.arenaId,
   }

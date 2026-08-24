@@ -7,8 +7,10 @@ import { expect, type Locator, type Page, type ConsoleMessage } from "@playwrigh
  * asserts these literals still match, so drift fails the E2E run instead of
  * silently turning `clearSave`/`seedSave` into no-ops.
  */
-export const SAVE_STORAGE_KEY = "eden.save.v4";
-export const SAVE_BACKUP_KEY = "eden.save.v4.corrupt-backup";
+export const SAVE_STORAGE_KEY = "eden.save.v5";
+export const SAVE_BACKUP_KEY = "eden.save.v5.corrupt-backup";
+/** The previous key, kept so the W4-05 migration spec can seed a pre-upgrade payload. */
+export const LEGACY_SAVE_STORAGE_KEY = "eden.save.v4";
 
 /**
  * Boot phases exposed by the shell's loading screen via `data-boot-phase`.
@@ -90,6 +92,22 @@ export async function seedRawSave(page: Page, raw: string): Promise<void> {
   await seedStorage(page, { [SAVE_STORAGE_KEY]: raw });
 }
 
+/** Writes a payload under the *previous* schema's key, for the W4-05 upgrade spec. */
+export async function seedLegacyRawSave(page: Page, raw: string): Promise<void> {
+  await seedStorage(page, { [LEGACY_SAVE_STORAGE_KEY]: raw });
+}
+
+/** Reads whatever is stored under the pre-upgrade key. */
+export async function readLegacyRawSave(page: Page): Promise<string | null> {
+  return page.evaluate((key: string) => window.localStorage.getItem(key), LEGACY_SAVE_STORAGE_KEY);
+}
+
+/** The base/reward progression readout (`Уровень N · XP …`), introduced by W4-01. */
+export const progressionReadout = (page: Page): Locator => page.locator("p.progression").first();
+
+/** The pre-return penalty notice on the return screen, introduced by W4-02. */
+export const penaltyNotice = (page: Page): Locator => page.locator("p.death-penalty");
+
 /** Writes a structured save under the save key before first navigation. */
 export async function seedSave(page: Page, save: unknown): Promise<void> {
   await seedRawSave(page, JSON.stringify(save));
@@ -123,10 +141,15 @@ export interface PersistedSave {
     activeMissionId: string | null;
     xp: number;
     claimedRewards: string[];
+    firstDeathReturnUsed: boolean;
+    /** Added by save v5 (W4-02): why the return screen was reached. */
+    returnReason: "defeat" | "retreat" | null;
     zone: { id: string; status: string };
     mission: { id: string; status: string; victories: number; firstRewardClaimed: boolean };
     encounters: Array<{ id: string; status: string; victories: number; firstRewardClaimed: boolean }>;
   };
+  /** Added by save v5 (W4-05). */
+  character: { level: number; xp: number; unspentSkillPoints: number };
   inventory: {
     stash: { resources: Array<{ id: string; quantity: number }>; items: Array<{ id: string; quantity: number }> };
     backpack: { resources: Array<{ id: string; quantity: number }>; items: Array<{ id: string; quantity: number }> };

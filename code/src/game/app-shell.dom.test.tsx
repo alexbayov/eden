@@ -36,6 +36,7 @@ import {
   stubShippedContent,
 } from "../test/dom-harness";
 import { buildSave, loadShippedContent, orderedEncounters } from "../test/campaign-save-fixtures";
+import { levelForXp, skillPointsGranted, xpToNextLevel } from "./progression";
 
 const content = loadShippedContent();
 const encounters = orderedEncounters(content);
@@ -152,6 +153,33 @@ describe("W1-02 base screen", () => {
     expect(container.textContent).toContain("металл 4");
     /* The base screen is not the combat shell. */
     expect(shellElement(container).classList.contains("combat")).toBe(false);
+  });
+
+  it("shows the character level and the XP still needed for the next level", async () => {
+    /* W4-01 criterion 4, base half. The expected numbers come from the shipped curve. */
+    const curve = content.progression.curve;
+    const xp = curve.thresholds[0];
+    seedRawSave(buildSave(content, { screen: "home", xp, claimedRewards: [] }).raw);
+    const { container } = await renderApp();
+
+    const readout = container.querySelector("p.progression")!;
+    expect(readout.getAttribute("data-level")).toBe(String(levelForXp(xp, curve)));
+    expect(readout.textContent).toContain(`Уровень ${levelForXp(xp, curve)}`);
+    expect(readout.textContent).toContain(`XP ${xp}`);
+    expect(readout.textContent).toContain(`до уровня 3: ${xpToNextLevel(xp, curve)} XP`);
+    /* Points earned but not spendable yet still surface, so they are not silently lost. */
+    expect(readout.textContent).toContain(`нераспределённых очков: ${skillPointsGranted(2, curve)}`);
+    expect(persistedSave().character.level).toBe(2);
+  });
+
+  it("reports the curve ceiling instead of an impossible next level", async () => {
+    const curve = content.progression.curve;
+    seedRawSave(buildSave(content, { screen: "home", xp: curve.thresholds.at(-1)!, claimedRewards: [] }).raw);
+    const { container } = await renderApp();
+
+    const readout = container.querySelector("p.progression")!;
+    expect(readout.textContent).toContain("максимальный уровень");
+    expect(readout.textContent).not.toContain("до уровня");
   });
 
   it("switches to mission select and persists that screen", async () => {

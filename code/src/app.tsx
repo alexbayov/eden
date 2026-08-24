@@ -20,15 +20,22 @@ import {
   type RecipeDefinition,
 } from "./game/base";
 import {
-  firstDeathReturn,
   canRetreatFromMission,
   missionVictory,
   retreatFromMission,
   returnFromMission,
-  retryMission as retryCampaignMission,
   startMission,
   type CampaignState,
 } from "./game/campaign";
+import {
+  deathPenalty,
+  loadProgression,
+  resolveDefeatRetry,
+  resolveDefeatReturn,
+  xpToNextLevel,
+  type CharacterState,
+  type ProgressionCatalog,
+} from "./game/progression";
 import {
   loadBaseUpgrades,
   loadItems,
@@ -112,6 +119,7 @@ interface Catalog {
   upgrades: Awaited<ReturnType<typeof loadBaseUpgrades>>;
   items: ItemDefinition[];
   equipment: EquipmentCatalog;
+  progression: ProgressionCatalog;
 }
 /** Mission-start units. Shared with the balance simulator so both build identical state. */
 const initialUnits = createEncounterUnits;
@@ -132,9 +140,11 @@ const LOADING_CAMPAIGN: CampaignState = {
   encounters: [],
   zone: { id: "loading", status: "available" },
   firstDeathReturnUsed: false,
+  returnReason: null,
   xp: 0,
   claimedRewards: [],
 };
+const LOADING_CHARACTER: CharacterState = { level: 1, xp: 0, unspentSkillPoints: 0 };
 
 const saveCatalogFor = (catalog: Catalog) =>
   campaignCatalogFor({
@@ -144,7 +154,17 @@ const saveCatalogFor = (catalog: Catalog) =>
     arenaIds: catalog.arenas.all.map((arena) => arena.id),
     items: catalog.items,
     equipment: catalog.equipment,
+    progression: catalog.progression.curve,
   });
+
+/** Level + progress-to-next, rendered identically on the base and reward screens (W4-01 §4). */
+const levelSummary = (character: CharacterState, catalog: Catalog | null) => {
+  const curve = catalog?.progression.curve;
+  const toNext = xpToNextLevel(character.xp, curve);
+  return `Уровень ${character.level} · XP ${character.xp}${
+    toNext === null ? " · максимальный уровень" : ` · до уровня ${character.level + 1}: ${toNext} XP`
+  } · нераспределённых очков: ${character.unspentSkillPoints}`;
+};
 const itemLabel = (id: string, catalog: Catalog) =>
   catalog.items.find((item) => item.id === id)?.name ??
   catalog.equipment.weapons.find((item) => item.id === id)?.name ??
@@ -221,12 +241,18 @@ export function App() {
     log,
   });
   const campaign = bootView.ready?.campaign ?? LOADING_CAMPAIGN;
+  const character = save?.character ?? LOADING_CHARACTER;
   const campaignMissions = catalog ? campaignMissionsOf(catalog.missions) : undefined;
   const inventory = save?.inventory;
   const base = save?.base;
   const hero = units.find((unit) => unit.id === "hero");
   const activeMission = catalog ? catalog.missions.find((entry) => entry.id === (campaign.activeMissionId ?? campaign.mission.id)) ?? catalog.missions[0] : null;
   const activeReward = catalog && activeMission ? catalog.rewards.find((entry) => entry.id === activeMission.rewardId) ?? null : null;
+  /**
+   * The penalty the player is shown *before* confirming the return, and the exact object that is
+   * applied when they do. Computed by `deathPenalty` and never re-derived here (W4-02 criterion 4).
+   */
+  const pendingPenalty = campaign.screen === "return" ? deathPenalty(campaign, catalog?.progression.curve) : null;
   const persist = (
     nextUnits: Unit[],
     nextPhase: Phase = phase,
@@ -236,17 +262,20 @@ export function App() {
     nextTurn = save?.turn ?? 1,
     nextRngState = save?.rngState ?? 0,
     nextArena: ArenaConfig | null = arena,
+    /* Only the two XP-changing transitions pass this: a reward claim and a death penalty. */
+    nextCharacter: CharacterState = character,
   ) => {
      if (!nextArena || !nextInventory || !nextBase || !save) return;
      const persistedInventory = syncEquipmentInstances(nextInventory, nextUnits);
      const next: SaveData = {
 
-      schemaVersion: 4,
+      schemaVersion: 5,
       arenaId: nextArena.id,
       activeEncounterId: nextCampaign.activeMissionId,
       units: nextUnits,
       phase: nextPhase as BattlePhase,
       campaign: nextCampaign,
+      character: nextCharacter,
        inventory: persistedInventory,
       base: nextBase,
       turn: nextTurn,
@@ -641,38 +670,53 @@ export function App() {
         base,
       );
   }
+  /** Message for a resolved defeat/retreat return. Reads the penalty object; computes nothing. */
+  const penaltyLog = (penalty: ReturnType<typeof deathPenalty>) =>
+    penalty.reason === "retreat"
+      ? "Отступление завершено: награда не получена, XP сохранён. Рюкзак разгружен в stash."
+      : penalty.firstDeathFree
+        ? "Первое поражение без штрафа XP. Повторное поражение будет стоить XP. Рюкзак разгружен в stash."
+        : `Поражение: −${penalty.xpLost} XP (уровень ${penalty.level} сохранён). Рюкзак разгружен в stash.`;
   function returnHome() {
     if (!inventory || !base) return;
-    const nextCampaign =
-      campaign.screen === "return"
-        ? firstDeathReturn(campaign)
-        : returnFromMission(campaign);
-     if (!persist(units, "player", nextCampaign, depositBackpack(inventory), base)) return;
-     setLog("Возврат на базу завершён. Рюкзак разгружен в stash.");
+    if (campaign.screen !== "return") {
+      if (!persist(units, "player", returnFromMission(campaign), depositBackpack(inventory), base)) return;
+      return setLog("Возврат на базу завершён. Рюкзак разгружен в stash.");
+    }
+    const resolved = resolveDefeatReturn(campaign, character, catalog?.progression.curve);
+    if (!persist(units, "player", resolved.campaign, depositBackpack(inventory), base, save?.turn ?? 1, save?.rngState ?? 0, arena, resolved.character)) return;
+    setLog(penaltyLog(resolved.penalty));
   }
   function retryMission() {
     if (!catalog || !inventory || !base) return;
     const selected = catalog.missions.find((entry) => entry.id === campaign.mission.id);
     const selectedArena = selected && catalog.arenas.byId.get(selected.arenaId);
     if (!selected || !selectedArena) return;
-    const nextCampaign = retryCampaignMission(campaign, catalog.missions);
-     if (!persist(initialUnits(selectedArena, catalog.equipment, inventory, units), "player", nextCampaign, inventory, base, 1, save?.rngState ?? 0, selectedArena)) return;
+    /* Re-entering immediately costs the same as walking home: retry is not a free undo. */
+    const resolved = resolveDefeatRetry(campaign, character, catalog.missions, catalog.progression.curve);
+    if (resolved.campaign === campaign) return;
+     if (!persist(initialUnits(selectedArena, catalog.equipment, inventory, units), "player", resolved.campaign, inventory, base, 1, save?.rngState ?? 0, selectedArena, resolved.character)) return;
      setTargetId(null);
+     setLog(resolved.penalty.xpLost > 0 ? `Повторная попытка: −${resolved.penalty.xpLost} XP за поражение.` : "Повторная попытка без штрафа XP.");
   }
   function collectReward() {
      if (rewardClaimInFlight.current || !activeReward || !inventory || !base || !campaignMissions) return;
      rewardClaimInFlight.current = true;
     setRewardClaimLocked(true);
-    const result = awardRewardTransition(campaign, inventory, activeReward, campaignMissions);
+    const result = awardRewardTransition(campaign, inventory, activeReward, campaignMissions, character, catalog?.progression.curve);
     if (!result.alreadyClaimed) {
-      const saved = persist(units, "player", result.campaign, result.inventory, base);
+      const saved = persist(units, "player", result.campaign, result.inventory, base, save?.turn ?? 1, save?.rngState ?? 0, arena, result.character);
       if (!saved) {
         rewardClaimInFlight.current = false;
         setRewardClaimLocked(false);
         return;
       }
     }
-    setLog(result.alreadyClaimed ? "Награда уже получена." : `Награда добавлена в stash: ${result.awarded.join(", ")}.`);
+    setLog(
+      result.alreadyClaimed
+        ? "Награда уже получена."
+        : `Награда добавлена в stash: ${result.awarded.join(", ")}.${result.levelsGained > 0 ? ` Новый уровень: ${result.character.level}.` : ""}`,
+    );
     rewardClaimInFlight.current = false;
     setRewardClaimLocked(false);
    }
@@ -813,8 +857,9 @@ export function App() {
       loadItems(),
       loadZones(),
       loadEquipmentCatalog(),
+      loadProgression(),
     ])
-      .then(async ([manifest, missions, rewards, upgrades, recipes, items, zones, equipment]) => {
+      .then(async ([manifest, missions, rewards, upgrades, recipes, items, zones, equipment, progression]) => {
 const arenas = await loadArenaCatalog(
            manifest,
            new Set(missions.map((mission) => mission.arenaId)),
@@ -846,12 +891,16 @@ const arenas = await loadArenaCatalog(
             arenaIds: arenas.all.map((entry) => entry.id),
             items,
             equipment,
+            progression: progression.curve,
           }),
         };
         saveAdapter.setValidationOptions(catalogOptions);
         const fallback = playableMissions[0];
+        /* Checked before `load`, which does not move the payload: the answer must describe storage
+           as it was found, not as it will be after the upgrade write below. */
+        const upgradeFromLegacyKey = saveAdapter.hasPendingUpgrade();
         const loaded = saveAdapter.load(fallback.arenaId, catalogOptions);
-        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, equipment };
+        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, equipment, progression };
         if (loaded && !loaded.ok) {
           const backupSucceeded = saveAdapter.backupCorrupt();
           setRecovery({ error: loaded.error, backupSucceeded, content: false });
@@ -875,7 +924,16 @@ const arenas = await loadArenaCatalog(
          const selectedArena = arenas.byId.get(next.arenaId) ?? arenas.byId.get(fallback.arenaId)!;
          setArena(selectedArena);
          setCatalog(appCatalog);
-         const result = original?.phase === "enemy" ? { ok: true as const, error: undefined } : original ? { ok: true as const, error: undefined } : saveAdapter.saveDetailed(next);
+         /**
+          * A save read from a legacy key was migrated in memory only. Writing it now moves the live
+          * copy to the current key at boot, so the very next reload no longer runs the migration —
+          * otherwise the old payload would stay authoritative until the player happened to trigger
+          * a transition, and an interrupted session would silently re-migrate every time (W4-05).
+          */
+         const pendingUpgrade = Boolean(original) && upgradeFromLegacyKey;
+         const result = original?.phase === "enemy" || (original && !pendingUpgrade)
+           ? { ok: true as const, error: undefined }
+           : saveAdapter.saveDetailed(next);
         if (!result.ok) {
           const error = new SaveValidationError("shape", [{ path: "$", message: result.error ?? "неизвестная ошибка сохранения" }]);
           setRecovery({ error, backupSucceeded: false, content: false, allowReset: true });
@@ -888,7 +946,15 @@ const arenas = await loadArenaCatalog(
         setSave(next);
         setUnits(next.units);
         setPhase(next.phase);
-        setSaveStatus(original?.phase === "enemy" ? "Сохранённый ход противника разрешён и записан." : original ? "Сохранение загружено." : "Сохранено локально.");
+        setSaveStatus(
+          original?.phase === "enemy"
+            ? "Сохранённый ход противника разрешён и записан."
+            : pendingUpgrade
+              ? "Сохранение обновлено до новой версии схемы и записано."
+              : original
+                ? "Сохранение загружено."
+                : "Сохранено локально.",
+        );
         setSaveFailure(null);
         void campaignMissions;
       })
@@ -1069,6 +1135,9 @@ const arenas = await loadArenaCatalog(
           <div class="card home-panel">
             <span class="label">БАЗА / ДОМАШНИЙ ЭКРАН</span>
             <h2>Бункер у периметра</h2>
+            <p class="progression" data-level={character.level}>
+              {levelSummary(character, catalog)}
+            </p>
             <p>
               Здоровье:{" "}
               <b>
@@ -1223,8 +1292,29 @@ const arenas = await loadArenaCatalog(
             </div>
             <p class="log">{log}</p>
              {campaign.screen === "mission-select" && <div class="actions"><button onClick={() => { if (!persist(units, "player", { ...campaign, screen: "home", activeMissionId: null }, inventory, base)) return; setLog("Возврат на базу."); }}>НАЗАД НА БАЗУ</button></div>}
-            {campaign.screen === "reward" && <div class="actions"><button disabled={rewardClaimLocked} onClick={collectReward}>ЗАБРАТЬ НАГРАДУ</button></div>}
-            {campaign.screen === "return" && <div class="actions"><button onClick={returnHome}>ВЕРНУТЬСЯ НА БАЗУ</button><button onClick={retryMission}>ПОВТОРИТЬ МИССИЮ</button></div>}
+            {campaign.screen === "reward" && (
+              <>
+                <p class="progression" data-level={character.level}>
+                  {levelSummary(character, catalog)}
+                  {activeReward ? ` · награда: +${activeReward.xp} XP` : ""}
+                </p>
+                <div class="actions"><button disabled={rewardClaimLocked} onClick={collectReward}>ЗАБРАТЬ НАГРАДУ</button></div>
+              </>
+            )}
+            {campaign.screen === "return" && pendingPenalty && (
+              <>
+                {/* W4-02: the cost is stated before the player confirms, and retreat is visibly
+                    different from a defeat rather than sharing one generic message. */}
+                <p class="death-penalty" role="status" data-penalty={pendingPenalty.xpLost} data-reason={pendingPenalty.reason}>
+                  {pendingPenalty.reason === "retreat"
+                    ? `Отступление: награда не получена, XP не теряется. ${levelSummary(character, catalog)}.`
+                    : pendingPenalty.firstDeathFree
+                      ? `Первое поражение: штрафа XP нет. Следующее поражение будет стоить XP. ${levelSummary(character, catalog)}.`
+                      : `Поражение: штраф −${pendingPenalty.xpLost} XP (${Math.round(pendingPenalty.xpLossRate * 100)}% от XP до следующего уровня). Уровень ${pendingPenalty.level} не понизится, XP не станет отрицательным. Ресурсы, stash и экипировка не затронуты.`}
+                </p>
+                <div class="actions"><button onClick={returnHome}>ВЕРНУТЬСЯ НА БАЗУ</button><button onClick={retryMission}>ПОВТОРИТЬ МИССИЮ</button></div>
+              </>
+            )}
             {campaign.screen === "home" && <p>XP: {campaign.xp} · зона: {campaign.zone.status}</p>}
           </div>
         </section>

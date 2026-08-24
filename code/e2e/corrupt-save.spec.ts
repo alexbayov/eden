@@ -55,7 +55,7 @@ test.describe("corrupt save recovery", () => {
 
     const persisted = await readRawSave(page);
     expect(persisted).not.toBeNull();
-    expect(JSON.parse(persisted!)).toMatchObject({ schemaVersion: 4, campaign: { screen: "home" } });
+    expect(JSON.parse(persisted!)).toMatchObject({ schemaVersion: 5, campaign: { screen: "home" } });
 
     /* The corrupt original stays in the backup key after the reset. */
     expect(await readBackup(page)).toBe(corrupt);

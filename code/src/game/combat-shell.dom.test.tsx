@@ -28,6 +28,7 @@ import {
   stubShippedContent,
 } from "../test/dom-harness";
 import { buildSave, loadShippedContent, orderedEncounters } from "../test/campaign-save-fixtures";
+import { levelForXp, skillPointsGranted } from "./progression";
 
 const content = loadShippedContent();
 const encounters = orderedEncounters(content);
@@ -129,6 +130,120 @@ describe("W1-02 reward and return screens", () => {
     const persisted = persistedSave();
     expect(persisted.campaign.xp).toBe(0);
     expect(persisted.campaign.claimedRewards).toEqual([]);
+  });
+
+  it("shows the level and the progress to the next level on the reward screen", async () => {
+    /* W4-01 criterion 4: the reward screen is one of the two places the level must be visible. */
+    const reward = content.rewards.find((entry) => entry.id === first.rewardId)!;
+    seedRawSave(buildSave(content, { screen: "reward" }).raw);
+    const { container } = await renderApp();
+
+    /* Two progression readouts render at once — the base panel and the reward panel — and the
+       criterion asks for both, so each is addressed rather than taking whichever comes first. */
+    const readouts = () => [...container.querySelectorAll("p.progression")].map((node) => node.textContent ?? "");
+    expect(readouts()).toHaveLength(2);
+    for (const text of readouts()) expect(text).toContain("Уровень 1");
+    expect(readouts().some((text) => text.includes(`+${reward.xp} XP`))).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "ЗАБРАТЬ НАГРАДУ" }));
+
+    await settle(() => expect(phaseLabel(container)).toBe("БАЗА"));
+    /* The claim advanced the persisted level, not just the XP counter. */
+    const level = levelForXp(reward.xp, content.progression.curve);
+    expect(persistedSave().character).toEqual({
+      level,
+      xp: reward.xp,
+      unspentSkillPoints: skillPointsGranted(level, content.progression.curve),
+    });
+    expect(readouts()[0]).toContain(`Уровень ${level}`);
+    expect(readouts()[0]).toContain("нераспределённых очков: 0");
+  });
+});
+
+describe("W4-02 death penalty on the return screen", () => {
+  beforeEach(() => {
+    clearStoredSave();
+    stubShippedContent();
+  });
+
+  const curve = content.progression.curve;
+  /** XP mid-band on L2, so a penalty is charged by the rate rather than clipped by the level floor. */
+  const chargedXp = curve.thresholds[0] + 20;
+
+  it("states that the first defeat is free before the player confirms the return", async () => {
+    seedRawSave(buildSave(content, { screen: "return", xp: chargedXp, claimedRewards: [] }).raw);
+    const { container } = await renderApp();
+
+    const notice = container.querySelector("p.death-penalty")!;
+    expect(notice.getAttribute("data-reason")).toBe("defeat");
+    expect(notice.getAttribute("data-penalty")).toBe("0");
+    expect(notice.textContent).toContain("Первое поражение");
+
+    fireEvent.click(screen.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }));
+
+    await settle(() => expect(phaseLabel(container)).toBe("БАЗА"));
+    const persisted = persistedSave();
+    expect(persisted.campaign.xp).toBe(chargedXp);
+    expect(persisted.campaign.firstDeathReturnUsed).toBe(true);
+  });
+
+  it("charges exactly the XP it stated on a later defeat, and never drops the level", async () => {
+    seedRawSave(
+      buildSave(content, { screen: "return", xp: chargedXp, claimedRewards: [], firstDeathReturnUsed: true }).raw,
+    );
+    const { container } = await renderApp();
+
+    const notice = container.querySelector("p.death-penalty")!;
+    const stated = Number(notice.getAttribute("data-penalty"));
+    expect(stated).toBeGreaterThan(0);
+    expect(notice.textContent).toContain(`−${stated} XP`);
+    /* The message names what is *not* taken, so the player is not left guessing. */
+    expect(notice.textContent).toContain("Ресурсы, stash и экипировка не затронуты");
+
+    fireEvent.click(screen.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }));
+
+    await settle(() => expect(phaseLabel(container)).toBe("БАЗА"));
+    const persisted = persistedSave();
+    /* Exactly the number that was shown, and the level survives it. */
+    expect(persisted.campaign.xp).toBe(chargedXp - stated);
+    expect(persisted.character.xp).toBe(chargedXp - stated);
+    expect(persisted.character.level).toBe(levelForXp(chargedXp, curve));
+  });
+
+  it("shows a different, XP-free consequence for a retreat", async () => {
+    seedRawSave(
+      buildSave(content, {
+        screen: "return",
+        returnReason: "retreat",
+        xp: chargedXp,
+        claimedRewards: [],
+        firstDeathReturnUsed: true,
+      }).raw,
+    );
+    const { container } = await renderApp();
+
+    const notice = container.querySelector("p.death-penalty")!;
+    expect(notice.getAttribute("data-reason")).toBe("retreat");
+    expect(notice.getAttribute("data-penalty")).toBe("0");
+    expect(notice.textContent).toContain("XP не теряется");
+
+    fireEvent.click(screen.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }));
+
+    await settle(() => expect(phaseLabel(container)).toBe("БАЗА"));
+    expect(persistedSave().campaign.xp).toBe(chargedXp);
+  });
+
+  it("charges a retry the same as a walk home, so retry is not a free undo", async () => {
+    seedRawSave(
+      buildSave(content, { screen: "return", xp: chargedXp, claimedRewards: [], firstDeathReturnUsed: true }).raw,
+    );
+    const { container } = await renderApp();
+    const stated = Number(container.querySelector("p.death-penalty")!.getAttribute("data-penalty"));
+
+    fireEvent.click(screen.getByRole("button", { name: "ПОВТОРИТЬ МИССИЮ" }));
+
+    await settle(() => expect(phaseLabel(container)).toBe("ВАШ ХОД"));
+    expect(persistedSave().campaign.xp).toBe(chargedXp - stated);
   });
 });
 

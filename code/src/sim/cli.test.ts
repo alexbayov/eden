@@ -44,7 +44,7 @@ import { orderedMissions, campaignStart, missionStart, progressTo, resolveDefeat
 import { renderJson, renderMarkdown, type SimulationReport } from './report'
 import { aggregateCombat, summarize as summarizeValues } from './metrics'
 import { deriveSeed, hashLabel } from './seed'
-import { validateSave } from '../game/save'
+import { SAVE_SCHEMA_VERSION, validateSave } from '../game/save'
 import { simulateBattle } from './battle'
 import { POLICIES, POLICY_IDS } from './policies'
 
@@ -134,7 +134,7 @@ describe('mission-start saves are the game\'s own states', () => {
       const started = missionStart(content, progressTo(content, mission.id), mission.id)
       /* The assertion that matters: a save the game would reject is never measured. */
       expect(validateSave(started.save, content.campaignCatalog).ok).toBe(true)
-      expect(started.save.schemaVersion).toBe(4)
+      expect(started.save.schemaVersion).toBe(SAVE_SCHEMA_VERSION)
       expect(started.save.arenaId).toBe(mission.arenaId)
       expect(started.save.activeEncounterId).toBe(mission.id)
       expect(started.save.phase).toBe('player')

@@ -30,6 +30,7 @@ import {
   validateArenaCatalog,
   type ArenaCatalog,
 } from "../game/content";
+import { parseProgression, type ProgressionCatalog } from "../game/progression";
 import {
   parseEquipmentCatalog,
   weaponById,
@@ -63,6 +64,7 @@ export interface ShippedContent {
   items: ItemDefinition[];
   equipment: EquipmentCatalog;
   arenas: ArenaCatalog;
+  progression: ProgressionCatalog;
   campaignCatalog: CampaignCatalog;
 }
 
@@ -77,6 +79,7 @@ export function loadShippedContent(): ShippedContent {
     return arena;
   });
 
+  const progression = parseProgression(readShippedConfig("progression.json"));
   const zones = unwrap(validateZones(readShippedConfig("zones.json")), "zones");
   const missions = unwrap(validateMissions(readShippedConfig("missions.json")), "missions");
   const rewards = unwrap(validateRewards(readShippedConfig("rewards.json")), "rewards");
@@ -105,12 +108,14 @@ export function loadShippedContent(): ShippedContent {
     items,
     equipment,
     arenas,
+    progression,
     campaignCatalog: shippedCampaignCatalog({
       missions: playable,
       rewards: validated.rewards,
       items,
       equipment,
       arenas,
+      progression,
     }),
   };
 }
@@ -126,8 +131,9 @@ export function shippedCampaignCatalog(input: {
   items: readonly ItemDefinition[];
   equipment: EquipmentCatalog;
   arenas: ArenaCatalog;
+  progression: ProgressionCatalog;
 }): CampaignCatalog {
-  const { missions, rewards, items, equipment, arenas } = input;
+  const { missions, rewards, items, equipment, arenas, progression } = input;
   const armorFor = (itemId: string) => equipment.armor.find((entry) => entry.id === itemId);
   return {
     catalogId: arenas.catalogId,
@@ -148,6 +154,7 @@ export function shippedCampaignCatalog(input: {
     armorForId: (armorId: string) => armorFor(armorId),
     ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
     ammoForId: (ammoId: string) => equipment.ammo.find((entry) => entry.id === ammoId),
+    progression: progression.curve,
     rewardIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.rewardId,
     arenaIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.arenaId,
   };

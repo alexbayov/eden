@@ -30,13 +30,17 @@
 import type { Unit } from '../game/combat'
 import type { ArenaConfig } from '../game/content'
 import {
-  firstDeathReturn,
   missionDefeat,
   missionVictory,
   startMission,
   type CampaignMission,
   type CampaignState,
 } from '../game/campaign'
+import {
+  characterForXp,
+  resolveDefeatReturn,
+  type CharacterState,
+} from '../game/progression'
 import { campaignMissionsOf } from '../game/campaign-catalog'
 import type { MissionDefinition, RewardDefinition } from '../game/campaign-content'
 import { createEncounterUnits } from '../game/encounter'
@@ -44,7 +48,7 @@ import { syncEquipmentInstances } from '../game/equipment-content'
 import type { Inventory } from '../game/inventory'
 import { DEFAULT_RNG_STATE } from '../game/rng'
 import { awardRewardTransition } from '../game/rewards'
-import { defaultSave, validateSave, type SaveData } from '../game/save'
+import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from '../game/save'
 import type { BaseState } from '../game/base'
 import type { SimulationContent } from './content-source'
 
@@ -64,6 +68,8 @@ export interface CampaignProgress {
   inventory: Inventory
   units: Unit[]
   base: BaseState
+  /** Level/XP/unspent points, advanced by the same `awardRewardTransition` the game calls. */
+  character: CharacterState
 }
 
 export interface MissionStart {
@@ -108,7 +114,7 @@ export function campaignStart(content: SimulationContent): CampaignProgress {
   )
   const validated = validateSave(save, content.campaignCatalog)
   if (!validated.ok) throw validated.error
-  return { campaign: validated.value.campaign, inventory: validated.value.inventory, units: validated.value.units, base: validated.value.base }
+  return { campaign: validated.value.campaign, inventory: validated.value.inventory, units: validated.value.units, base: validated.value.base, character: validated.value.character }
 }
 
 /** Applies a victory: campaign -> reward screen -> reward claimed -> home, gear state carried. */
@@ -122,8 +128,10 @@ export function resolveVictory(content: SimulationContent, progress: CampaignPro
     syncEquipmentInstances(progress.inventory, finalUnits),
     rewardOf(content, mission),
     missions,
+    progress.character,
+    content.campaignCatalog.progression,
   )
-  return { campaign: transition.campaign, inventory: transition.inventory, units: finalUnits, base: progress.base }
+  return { campaign: transition.campaign, inventory: transition.inventory, units: finalUnits, base: progress.base, character: transition.character }
 }
 
 /**
@@ -135,14 +143,18 @@ export function resolveVictory(content: SimulationContent, progress: CampaignPro
  * later `startMission` would accept: `failed` is retryable, `active` is not. The CLI stops the pass
  * at the first non-win, so this is the transition it applies when doing so.
  */
-export function resolveDefeat(progress: CampaignProgress, finalUnits: Unit[]): CampaignProgress {
+export function resolveDefeat(progress: CampaignProgress, finalUnits: Unit[], curve?: CharacterCurve): CampaignProgress {
+  /* Since W4-02 a defeat also charges the XP penalty, through the game's own transition. */
+  const resolved = resolveDefeatReturn(missionDefeat(progress.campaign), progress.character, curve)
   return {
-    campaign: firstDeathReturn(missionDefeat(progress.campaign)),
+    campaign: resolved.campaign,
     inventory: syncEquipmentInstances(progress.inventory, finalUnits),
     units: finalUnits,
     base: progress.base,
+    character: resolved.character,
   }
 }
+type CharacterCurve = Parameters<typeof resolveDefeatReturn>[2]
 
 /**
  * Builds the mission-start save for `missionId` and returns it together with the progress it was
@@ -159,7 +171,7 @@ export function missionStart(content: SimulationContent, progress: CampaignProgr
   const units = createEncounterUnits(arena, content.equipment, progress.inventory, progress.units)
   const inventory = syncEquipmentInstances(progress.inventory, units)
   const candidate: SaveData = {
-    schemaVersion: 4,
+    schemaVersion: SAVE_SCHEMA_VERSION,
     arenaId: mission.arenaId,
     activeEncounterId: mission.id,
     phase: 'player',
@@ -168,6 +180,8 @@ export function missionStart(content: SimulationContent, progress: CampaignProgr
     rngState: DEFAULT_RNG_STATE,
     units,
     campaign,
+    /* Progression mirrors the campaign XP the scripted victories accumulated (W4-05 §5.3). */
+    character: characterForXp(campaign.xp, content.campaignCatalog.progression),
     inventory,
     base: progress.base,
   }
@@ -177,7 +191,7 @@ export function missionStart(content: SimulationContent, progress: CampaignProgr
     mission,
     arena,
     save: validated.value,
-    progress: { campaign, inventory, units, base: progress.base },
+    progress: { campaign, inventory, units, base: progress.base, character: validated.value.character },
   }
 }
 

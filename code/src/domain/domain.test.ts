@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyUpgrade, craft, defaultBase, repairGear, treatHero, type BaseUpgradeDefinition, type RecipeDefinition } from './base'
-import { claimReward, createCampaign, firstDeathReturn, missionDefeat, missionVictory, retryMission, returnFromMission, startMission } from './campaign'
+import { claimReward, createCampaign, firstDeathReturn, missionDefeat, missionVictory, retreatFromMission, retryMission, returnFromMission, startMission } from './campaign'
 import { addItem, addResource, assignQuickSlot, backpackWeight, createInventory, depositBackpack, equipmentDurabilityPercent, damageEquipment, itemQuantity, resourceQuantity, transferItem, transferResource, type EquipmentInstance } from './inventory'
 import { awardReward } from './rewards'
 
@@ -93,9 +93,28 @@ describe('M2 pure domain', () => {
     expect(claimReward(claimed, 'r', 80)).toBe(claimed)
     const defeated = missionDefeat(active)
     expect(defeated.screen).toBe('return')
-    expect(firstDeathReturn(defeated)).toMatchObject({ screen: 'home', firstDeathReturnUsed: true })
+    expect(firstDeathReturn(defeated)).toMatchObject({ screen: 'home', firstDeathReturnUsed: true, returnReason: null })
     expect(firstDeathReturn({ ...defeated, firstDeathReturnUsed: true })).toMatchObject({ screen: 'home', firstDeathReturnUsed: true })
      expect(retryMission(defeated, missions).screen).toBe('mission')
     expect(returnFromMission(claimed)).toBe(claimed)
+  })
+  it('separates a retreat from a defeat, so only a defeat can cost XP', () => {
+    /* W4-02 criterion 5: the two exits share the encounter bookkeeping and nothing else. */
+    const missions = [{ id: 'mission', zoneId: 'zone', order: 1, rewardId: 'r', arenaId: 'arena' }]
+    const active = startMission(createCampaign(missions, 'test-catalog'), undefined, missions)
+    const defeated = missionDefeat(active)
+    const retreated = retreatFromMission(active)
+    expect(defeated).toMatchObject({ screen: 'return', returnReason: 'defeat', mission: { status: 'failed' } })
+    expect(retreated).toMatchObject({ screen: 'return', returnReason: 'retreat', mission: { status: 'failed' } })
+    /* Neither grants a reward, and both stay retryable. */
+    for (const state of [defeated, retreated]) {
+      expect(claimReward(state, 'r', 80)).toBe(state)
+      expect(retryMission(state, missions)).toMatchObject({ screen: 'mission', returnReason: null })
+    }
+    /* Only the defeat consumes the free-death allowance. */
+    expect(firstDeathReturn(defeated).firstDeathReturnUsed).toBe(true)
+    expect(firstDeathReturn(retreated).firstDeathReturnUsed).toBe(false)
+    /* And neither leaves a stale reason behind on the base screen. */
+    expect(firstDeathReturn(retreated)).toMatchObject({ screen: 'home', returnReason: null })
   })
 })

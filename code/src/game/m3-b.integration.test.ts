@@ -4,6 +4,7 @@ import { parseArenaContent, validateArenaCatalog } from './content'
 import { validateMissions } from './campaign-content'
 import { claimReward, createCampaign, missionDefeat, missionVictory, returnFromMission, startMission, type CampaignMission } from './campaign'
 import { awardReward } from './rewards'
+import { characterForXp } from './progression'
 import { createLocalStorageAdapter, createMemoryStorage, defaultSave, validateSave } from './save'
 
 const shipped = (name: string) => JSON.parse(readFileSync(new URL(`../../public/config/${name}.json`, import.meta.url), 'utf8')) as unknown
@@ -99,6 +100,8 @@ describe('M3-B encounter runtime integration', () => {
         ...defaultSave(arena.id, units, undefined, missions),
         activeEncounterId: mission.id,
         campaign,
+        /* Save v5: progression is derived from campaign XP, which the reward claims below grow. */
+        character: characterForXp(campaign.xp),
       }
       const adapter = createLocalStorageAdapter(createMemoryStorage(), catalogOptions(missions))
 

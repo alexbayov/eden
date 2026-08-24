@@ -332,6 +332,29 @@
   margin-left: 8px;
 }
 
+/* --------------------------------------------------------------- progression (W4-01/W4-02) */
+/* Level readout on the base and reward screens. Plain text on purpose: the number itself is the
+   information, and a decorative bar would need a second source of truth for the same value. */
+.progression {
+  font: 12px ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  color: #9fe6c4;
+}
+/* The pre-return penalty notice. Colour is a supporting cue, never the only one: the text always
+   states the cost, so the message is complete for a monochrome or colour-blind reader. */
+.death-penalty {
+  padding: 9px 11px;
+  border-left: 3px solid #d98b6a;
+  background: rgba(217, 139, 106, 0.09);
+  font: 12px/1.55 ui-monospace, monospace;
+  color: #f0d3c4;
+}
+.death-penalty[data-penalty="0"] {
+  border-left-color: #6ad9a1;
+  background: rgba(106, 217, 161, 0.08);
+  color: #cfeadd;
+}
+
 /* ------------------------------------------------------- campaign / inventory */
 .inventory-panel ul {
   margin: 10px 0 0;

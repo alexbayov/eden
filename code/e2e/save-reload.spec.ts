@@ -6,12 +6,15 @@ import {
   encounterStatus,
   endTurnButton,
   gotoApp,
+  LEGACY_SAVE_STORAGE_KEY,
   missionCard,
   phaseLabel,
+  progressionReadout,
   readBackup,
   readRawSave,
   readSave,
   reloadApp,
+  seedLegacyRawSave,
   seedRawSave,
   SAVE_STORAGE_KEY,
 } from "./helpers/app";
@@ -19,8 +22,10 @@ import {
   buildSave,
   loadShippedContent,
   orderedEncounters,
+  toLegacyV4Save,
   xpForRewards,
 } from "../src/test/campaign-save-fixtures";
+import { levelForXp, skillPointsGranted, xpToNextLevel } from "../src/game/progression";
 
 /**
  * W1-04 — the save contract against real `localStorage`, not the in-memory adapter.
@@ -235,6 +240,167 @@ test.describe("W1-04 reload at every campaign stage", () => {
     }
     /* Criterion 4: no white screen on either branch. */
     await expect(page.locator("main.game-shell")).toBeVisible();
+  });
+});
+
+test.describe("W4-05 schema upgrade and W4-01 level progress across a reload", () => {
+  const curve = content.progression.curve;
+
+  test("continues a save created before the upgrade, raising it to v5 with a derived level", async ({ page }) => {
+    /* W4-05 acceptance criterion 6, and the reason `LEGACY_SAVE_STORAGE_KEYS` exists: the payload
+       sits under the *old* key, in the *old* shape, exactly as a player's browser would have it
+       after the app updates underneath them. Nothing may be lost and nothing may be invented. */
+    const errors = collectConsoleErrors(page);
+    const xp = curve.thresholds[0];
+    const legacy = toLegacyV4Save(buildSave(content, { screen: "home", xp, claimedRewards: [] }));
+    expect(legacy.save.schemaVersion).toBe(4);
+    expect("character" in legacy.save).toBe(false);
+
+    await clearSave(page);
+    await seedLegacyRawSave(page, legacy.raw);
+    await gotoApp(page);
+
+    /* Not recovery: the old save loads and the campaign continues. */
+    await expect(page.locator("main.game-shell.recovery")).toHaveCount(0);
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+    const migrated = await readSave(page);
+    expect(migrated.schemaVersion).toBe(5);
+    /* XP is carried, and the level/points are derived from the curve rather than reset. */
+    expect(migrated.campaign.xp).toBe(xp);
+    expect(migrated.character).toEqual({
+      level: levelForXp(xp, curve),
+      xp,
+      unspentSkillPoints: skillPointsGranted(levelForXp(xp, curve), curve),
+    });
+    await expect(progressionReadout(page)).toContainText(`Уровень ${levelForXp(xp, curve)}`);
+
+    /* The upgraded payload is written under the new key; the old one is left intact rather than
+       deleted, so a downgrade is still possible. */
+    expect(await page.evaluate((key: string) => window.localStorage.getItem(key), SAVE_STORAGE_KEY)).not.toBeNull();
+    expect(await page.evaluate((key: string) => window.localStorage.getItem(key), LEGACY_SAVE_STORAGE_KEY)).toBe(legacy.raw);
+
+    /* And the upgraded save is itself durable. */
+    await reloadApp(page);
+    expect(await readSave(page)).toEqual(migrated);
+    await expect(progressionReadout(page)).toContainText(`Уровень ${levelForXp(xp, curve)}`);
+    expect(errors).toEqual([]);
+  });
+
+  test("refuses an invalid pre-upgrade save instead of migrating it into a valid-looking v5", async ({ page }) => {
+    /* The other half of the migration contract: the invalid source is rejected *before* the rewrite,
+       so a broken v4 cannot become a plausible v5 with fabricated progression. */
+    const legacy = toLegacyV4Save(buildSave(content, { screen: "home" }));
+    const broken = { ...legacy.save, campaign: { ...(legacy.save.campaign as object), xp: -5 } };
+
+    await clearSave(page);
+    await seedLegacyRawSave(page, JSON.stringify(broken));
+    await gotoApp(page, { expect: "recovery" });
+
+    await expect(page.getByText("SAVE RECOVERY")).toBeVisible();
+    await expect(page.locator("p.log")).toContainText("$.campaign.xp");
+    /* Non-destructive: the original payload survives under its own key and is backed up. */
+    expect(await page.evaluate((key: string) => window.localStorage.getItem(key), LEGACY_SAVE_STORAGE_KEY)).toBe(
+      JSON.stringify(broken),
+    );
+    expect(await readBackup(page)).toBe(JSON.stringify(broken));
+  });
+
+  test("keeps a level gained through the UI after a reload", async ({ page }) => {
+    /* W4-01/W4-05 together, through the real reward flow rather than a seeded level: claim a reward
+       that crosses a threshold, then F5 and check the level is still there. */
+    const errors = collectConsoleErrors(page);
+    const reward = content.rewards.find((entry) => entry.id === firstEncounter.rewardId)!;
+    await clearSave(page);
+    /* Seed 15 XP below L2 so the real first reward crosses the shipped 40 XP threshold. */
+    const startingXp = curve.thresholds[0] - 15;
+    const seeded = buildSave(content, { screen: "reward", xp: startingXp }).raw;
+    await seedRawSave(page, seeded);
+    await gotoApp(page);
+    expect((await readSave(page)).character).toEqual({ level: 1, xp: startingXp, unspentSkillPoints: 0 });
+    const resultingXp = startingXp + reward.xp;
+    const expectedLevel = levelForXp(resultingXp, curve);
+    expect(expectedLevel).toBeGreaterThan(1);
+
+    await page.getByRole("button", { name: "ЗАБРАТЬ НАГРАДУ" }).click();
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+
+    const levelled = await readSave(page);
+    expect(levelled.character).toEqual({
+      level: expectedLevel,
+      xp: resultingXp,
+      unspentSkillPoints: skillPointsGranted(expectedLevel, curve),
+    });
+    await expect(progressionReadout(page)).toContainText(`Уровень ${expectedLevel}`);
+    await expect(progressionReadout(page)).toContainText(`до уровня ${expectedLevel + 1}: ${xpToNextLevel(resultingXp, curve)} XP`);
+    /* Unspent points persist even though nothing spends them yet (W4-03 is out of scope). */
+    await expect(progressionReadout(page)).toContainText("нераспределённых очков");
+
+    await reloadApp(page);
+
+    /* The level survives the reload, byte for byte, and is still rendered. */
+    expect(await readSave(page)).toEqual(levelled);
+    await expect(progressionReadout(page)).toContainText(`Уровень ${expectedLevel}`);
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+    expect(errors).toEqual([]);
+  });
+
+  test("charges the stated death penalty and keeps the result after a reload", async ({ page }) => {
+    /* W4-02: the number the return screen shows is the number that is taken, and it persists. */
+    const xp = curve.thresholds[0] + 20;
+    await clearSave(page);
+    await seedRawSave(
+      page,
+      buildSave(content, { screen: "return", xp, claimedRewards: [], firstDeathReturnUsed: true }).raw,
+    );
+    await gotoApp(page);
+
+    await expect(phaseLabel(page)).toHaveText("ВОЗВРАТ");
+    const notice = page.locator("p.death-penalty");
+    await expect(notice).toBeVisible();
+    const stated = Number(await notice.getAttribute("data-penalty"));
+    expect(stated).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }).click();
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+
+    const charged = await readSave(page);
+    expect(charged.campaign.xp).toBe(xp - stated);
+    expect(charged.character.level).toBe(levelForXp(xp, curve));
+
+    await reloadApp(page);
+    expect(await readSave(page)).toEqual(charged);
+  });
+
+  test("first defeat is free, and retreat costs no XP at all", async ({ page }) => {
+    const xp = curve.thresholds[0] + 20;
+    /* First defeat: nothing taken, allowance consumed. */
+    await clearSave(page);
+    await seedRawSave(page, buildSave(content, { screen: "return", xp, claimedRewards: [] }).raw);
+    await gotoApp(page);
+    await expect(page.locator("p.death-penalty")).toContainText("Первое поражение");
+    await page.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }).click();
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+    const afterFirst = await readSave(page);
+    expect(afterFirst.campaign.xp).toBe(xp);
+    expect(afterFirst.campaign.firstDeathReturnUsed).toBe(true);
+
+    /* Retreat, with the allowance already spent: still no XP cost, and a different message. */
+    await clearSave(page);
+    await seedRawSave(
+      page,
+      buildSave(content, {
+        screen: "return",
+        returnReason: "retreat",
+        xp,
+        claimedRewards: [],
+        firstDeathReturnUsed: true,
+      }).raw,
+    );
+    await gotoApp(page);
+    await expect(page.locator("p.death-penalty")).toContainText("XP не теряется");
+    await page.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }).click();
+    await expect(phaseLabel(page)).toHaveText("БАЗА");
+    expect((await readSave(page)).campaign.xp).toBe(xp);
   });
 });
 

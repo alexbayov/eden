@@ -36,7 +36,7 @@ test.describe("boot smoke", () => {
        earlier test would make the rest of this spec meaningless. */
     await page.addInitScript(() => {
       (window as unknown as { __edenSaveAtBoot: string | null }).__edenSaveAtBoot =
-        window.localStorage.getItem("eden.save.v4");
+        window.localStorage.getItem("eden.save.v5");
     });
 
     await gotoApp(page);
@@ -57,7 +57,7 @@ test.describe("boot smoke", () => {
     /* A first boot must have written its own save. */
     const persisted = await readRawSave(page);
     expect(persisted).not.toBeNull();
-    expect(JSON.parse(persisted!)).toMatchObject({ schemaVersion: 4, campaign: { screen: "home" } });
+    expect(JSON.parse(persisted!)).toMatchObject({ schemaVersion: 5, campaign: { screen: "home" } });
 
     expect(errors).toEqual([]);
   });

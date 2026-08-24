@@ -44,6 +44,7 @@ import {
 import type { BaseUpgradeDefinition, RecipeDefinition } from '../game/base'
 import { loadEquipmentCatalog, type EquipmentCatalog } from '../game/equipment-content'
 import { campaignCatalogFor } from '../game/campaign-catalog'
+import { loadProgression, type ProgressionCatalog } from '../game/progression'
 import type { CampaignCatalog } from '../game/save'
 
 /** `code/public`, the directory the dev server and `vite build` serve `/config/*` from. */
@@ -101,6 +102,7 @@ export interface SimulationContent {
   recipes: RecipeDefinition[]
   upgrades: BaseUpgradeDefinition[]
   equipment: EquipmentCatalog
+  progression: ProgressionCatalog
   campaignCatalog: CampaignCatalog
 }
 
@@ -111,7 +113,7 @@ export interface SimulationContent {
  */
 export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<SimulationContent> {
   return withPublicFetch(async () => {
-    const [manifest, missions, rewards, upgrades, recipes, items, zones, equipment] = await Promise.all([
+    const [manifest, missions, rewards, upgrades, recipes, items, zones, equipment, progression] = await Promise.all([
       loadArenaManifest(),
       loadMissions(),
       loadRewards(),
@@ -120,6 +122,7 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
       loadItems(),
       loadZones(),
       loadEquipmentCatalog(),
+      loadProgression(),
     ])
     const arenas = await loadArenaCatalog(manifest, new Set(missions.map((mission) => mission.arenaId)), equipment)
     const validated = validateCampaignCatalog(
@@ -141,6 +144,7 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
       recipes,
       upgrades,
       equipment,
+      progression,
       campaignCatalog: campaignCatalogFor({
         catalogId: arenas.catalogId,
         missions: playable,
@@ -148,6 +152,7 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
         arenaIds: arenas.all.map((arena) => arena.id),
         items,
         equipment,
+        progression: progression.curve,
       }),
     }
   }, publicRoot)

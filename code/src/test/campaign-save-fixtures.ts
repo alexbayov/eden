@@ -30,7 +30,8 @@ import { hydrateArenaUnits, syncEquipmentInstances } from "../game/equipment-con
 import { createInventory } from "../game/inventory";
 import { nextRandom } from "../game/rng";
 import type { CampaignState, MissionProgress, MissionStatus } from "../game/campaign";
-import { defaultSave, validateSave, type SaveData } from "../game/save";
+import { characterForXp } from "../game/progression";
+import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from "../game/save";
 import type { ShippedContent } from "./campaign-content-fixtures";
 
 export {
@@ -70,6 +71,13 @@ export interface SaveFixtureOptions {
   heroAmmo?: { magazine: number; reserveAmmo: number };
   zoneStatus?: "available" | "completed";
   firstDeathReturnUsed?: boolean;
+  /**
+   * Why the return screen was reached (save v5). Only meaningful for `screen: "return"`, where it
+   * decides whether leaving costs XP; defaults to `defeat`, the case the specs care about.
+   */
+  returnReason?: "defeat" | "retreat";
+  /** Unspent skill points. Defaults to everything the reached level granted, as a real save does. */
+  unspentSkillPoints?: number;
   /** Stash resources, so reward assertions can start from a known baseline. */
   stashMetal?: number;
 }
@@ -221,9 +229,12 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     encounters,
     zone: { id: mission.zoneId, status: zoneStatus },
     firstDeathReturnUsed: options.firstDeathReturnUsed ?? false,
+    returnReason: options.screen === "return" ? (options.returnReason ?? "defeat") : null,
     xp: options.xp ?? xpForRewards(content, claimedRewards),
     claimedRewards: [...claimedRewards],
   };
+  /* Derived from the curve, not chosen: `validateSave` rejects a level that disagrees with XP. */
+  const character = characterForXp(campaign.xp, content.campaignCatalog.progression);
 
   const stashMetal = options.stashMetal ?? 0;
   const inventory = syncEquipmentInstances(
@@ -238,7 +249,7 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
   );
 
   const save: SaveData = {
-    schemaVersion: 4,
+    schemaVersion: SAVE_SCHEMA_VERSION,
     arenaId: arena.id,
     activeEncounterId: activeScreen ? encounterId : null,
     phase: PHASE_FOR_SCREEN[options.screen],
@@ -246,6 +257,10 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     rngState: options.rngState ?? seed.rngState,
     units,
     campaign,
+    character:
+      options.unspentSkillPoints === undefined
+        ? character
+        : { ...character, unspentSkillPoints: options.unspentSkillPoints },
     inventory,
     base: seed.base,
   };
@@ -256,6 +271,23 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
       `fixture rejected by the runtime validator (${options.screen}/${encounterId}): ${checked.error.message}`,
     );
   return { save: checked.value, arena, encounterId, rewardId: mission.rewardId, raw: JSON.stringify(checked.value) };
+}
+
+/**
+ * A validated v5 fixture stripped back to the on-disk shape of a pre-upgrade (v4) save: no
+ * `character` block and no `campaign.returnReason`.
+ *
+ * Built by removal from a payload the *current* validator already accepted, rather than
+ * hand-written, so the W4-05 upgrade spec cannot pass against a v4 shape the game never wrote.
+ */
+export function toLegacyV4Save(fixture: SaveFixture): { save: Record<string, unknown>; raw: string } {
+  const legacy = { ...fixture.save } as Record<string, unknown>;
+  delete legacy.character;
+  const campaign = { ...fixture.save.campaign } as Record<string, unknown>;
+  delete campaign.returnReason;
+  legacy.schemaVersion = 4;
+  legacy.campaign = campaign;
+  return { save: legacy, raw: JSON.stringify(legacy) };
 }
 
 /**

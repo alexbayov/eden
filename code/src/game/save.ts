@@ -5,14 +5,23 @@ import { defaultBase, isValidBase, type BaseState } from "./base";
 import { createInventory, isEquipmentSlot, isResourceId, type EquipmentInstance, type EquipmentSlot, type Inventory } from "./inventory";
 import { DEFAULT_RNG_STATE } from "./rng";
 import { hydrateArenaUnits, type ArmorDefinition, type EquipmentCatalog, type WeaponDefinition } from "./equipment-content";
+import { DEFAULT_LEVEL_CURVE, characterForXp, levelForXp, maxLevel, skillPointsGranted, type CharacterState, type LevelCurve } from "./progression";
 
-export const SAVE_SCHEMA_VERSION = 4;
-export const SAVE_STORAGE_KEY = "eden.save.v4";
-export const SAVE_BACKUP_KEY = "eden.save.v4.corrupt-backup";
+export const SAVE_SCHEMA_VERSION = 5;
+export const SAVE_STORAGE_KEY = "eden.save.v5";
+export const SAVE_BACKUP_KEY = "eden.save.v5.corrupt-backup";
+/**
+ * Keys written by earlier schema versions, newest first. Read-only: the adapter falls back to them
+ * when the current key is empty, migrates what it finds and writes the result under the current
+ * key. Without this, bumping the key would make every existing player's save invisible and start
+ * them at a fresh campaign — the exact failure W4-05 criterion 6 exists to catch. The old key is
+ * left in place rather than deleted, so a failed upgrade is recoverable by downgrading.
+ */
+export const LEGACY_SAVE_STORAGE_KEYS = ["eden.save.v4"] as const;
 export type BattlePhase = "player" | "enemy" | "victory" | "defeat";
-export interface SaveData { schemaVersion: 4; arenaId: string; activeEncounterId: string | null; phase: BattlePhase; turn: number; rngState: number; units: Unit[]; campaign: CampaignState; inventory: Inventory; base: BaseState }
+export interface SaveData { schemaVersion: 5; arenaId: string; activeEncounterId: string | null; phase: BattlePhase; turn: number; rngState: number; units: Unit[]; campaign: CampaignState; character: CharacterState; inventory: Inventory; base: BaseState }
 export interface SaveIssue { path: string; message: string }
-export interface CampaignCatalog { catalogId?: string; missions: readonly CampaignMission[]; missionIds: ReadonlySet<string>; rewardIds: ReadonlySet<string>; arenaIds: ReadonlySet<string>; zoneIds?: ReadonlySet<string>; itemIds?: ReadonlySet<string>; itemWeightForId?: (itemId: string) => number | undefined; weaponIds?: ReadonlySet<string>; weaponForId?: (weaponId: string) => WeaponDefinition | undefined; armorIds?: ReadonlySet<string>; armorSlotForId?: (itemId: string) => string | undefined; armorForId?: (armorId: string) => ArmorDefinition | undefined; ammoIds?: ReadonlySet<string>; ammoForId?: (ammoId: string) => { damageModifier: number; penetrationModifier: number } | undefined; rewardIdForMission: (missionId: string) => string | undefined; arenaIdForMission: (missionId: string) => string | undefined }
+export interface CampaignCatalog { catalogId?: string; missions: readonly CampaignMission[]; missionIds: ReadonlySet<string>; rewardIds: ReadonlySet<string>; arenaIds: ReadonlySet<string>; zoneIds?: ReadonlySet<string>; itemIds?: ReadonlySet<string>; itemWeightForId?: (itemId: string) => number | undefined; weaponIds?: ReadonlySet<string>; weaponForId?: (weaponId: string) => WeaponDefinition | undefined; armorIds?: ReadonlySet<string>; armorSlotForId?: (itemId: string) => string | undefined; armorForId?: (armorId: string) => ArmorDefinition | undefined; ammoIds?: ReadonlySet<string>; ammoForId?: (ammoId: string) => { damageModifier: number; penetrationModifier: number } | undefined; /** Level curve the save's `character` block is validated against; defaults to the shipped curve. */ progression?: LevelCurve; rewardIdForMission: (missionId: string) => string | undefined; arenaIdForMission: (missionId: string) => string | undefined }
 export interface SaveValidationOptions { campaignCatalog?: CampaignCatalog; campaignMissions?: readonly CampaignMission[] }
 export type SaveResult = { ok: true; value: SaveData } | { ok: false; error: SaveValidationError };
 export class SaveValidationError extends Error { readonly code: "parse" | "version" | "shape"; readonly issues: SaveIssue[]; constructor(code: SaveValidationError["code"], issues: SaveIssue[]) { super(`Некорректное сохранение (${code}): ${issues.map((i) => `${i.path} — ${i.message}`).join("; ")}`); this.name = "SaveValidationError"; this.code = code; this.issues = issues } }
@@ -262,6 +271,13 @@ function catalogOf(options?: SaveValidationOptions): CampaignCatalog | undefined
     },
   }
 }
+/**
+ * Versions this module can validate. v5 is the current schema; v4 is validated **only** as the
+ * source of a migration, which is what doc 23 §5.3 rule 4 demands ("невалидный источник
+ * отклоняется до миграции"). Everything the two share is one code path; the two fields that differ
+ * (`character`, `campaign.returnReason`) are gated on the version rather than duplicated.
+ */
+export type SupportedSchemaVersion = 4 | 5;
 const progressKeys = ["id", "status", "victories", "firstRewardClaimed", "rewardId", "mapId", "arenaId"] as const;
 const validMissionStatuses = new Set(["locked", "available", "active", "completed", "failed"]);
 const checkProgressShape = (value: unknown, path: string, issues: SaveIssue[]) => {
@@ -271,7 +287,7 @@ const checkProgressShape = (value: unknown, path: string, issues: SaveIssue[]) =
 };
 const mirrorProgress = (left: Record<string, any>, right: Record<string, any>) => progressKeys.every((key) => left[key] === right[key]);
 
-function validateCampaign(value: unknown, issues: SaveIssue[], catalog: CampaignCatalog | undefined, activeEncounterId: unknown, phase: unknown) {
+function validateCampaign(value: unknown, issues: SaveIssue[], catalog: CampaignCatalog | undefined, activeEncounterId: unknown, phase: unknown, version: SupportedSchemaVersion) {
   if (!record(value)) return issue(issues, "$.campaign", "объект кампании");
   if (!string(value.catalogId) || !screens.has(value.screen) || (value.activeMissionId !== null && !string(value.activeMissionId)) || (value.activeMapId !== null && !string(value.activeMapId))) issue(issues, "$.campaign", "корректное состояние кампании");
   // Terminal battle phases are represented only by the explicit reward/return screens.
@@ -297,6 +313,11 @@ function validateCampaign(value: unknown, issues: SaveIssue[], catalog: Campaign
     if (string(value.zone.id) && !missionZoneIds.has(value.zone.id)) issue(issues, "$.campaign.zone.id", "зона присутствует в mission catalog");
   }
   if (typeof value.firstDeathReturnUsed !== "boolean") issue(issues, "$.campaign.firstDeathReturnUsed", "boolean");
+  // W4-02: the return screen must say *why* it was reached, because the XP penalty is charged on
+  // leaving it and a defeat costs what a retreat does not. A reason outside the return screen would
+  // be a stale value the penalty could later read. A v4 source predates the field entirely, so it
+  // is not required there — the migration supplies it.
+  if (version >= 5 && (value.screen === "return" ? value.returnReason !== "defeat" && value.returnReason !== "retreat" : value.returnReason !== null)) issue(issues, "$.campaign.returnReason", "defeat | retreat на экране return и null вне него");
   if (!finite(value.xp) || value.xp < 0) issue(issues, "$.campaign.xp", "конечное неотрицательное число");
   if (!catalog.zoneIds) {
     const expectedZone = catalog.missions[0]?.zoneId;
@@ -376,14 +397,43 @@ function validateCampaign(value: unknown, issues: SaveIssue[], catalog: Campaign
     if ((value.screen === "home" || value.screen === "mission-select") && mission.status === "active") issue(issues, "$.campaign.mission.status", "active только во время миссии");
   }
 }
+/**
+ * W4-05 — the v5 `character` block, validated against the **progression catalog**, not against
+ * itself. `level` and `unspentSkillPoints` are derived values, so a save is only consistent if the
+ * curve agrees: `level === levelForXp(xp)` and the points never exceed what those levels granted.
+ * That closes the obvious hand-edit (level 6 on 0 XP) and, more importantly, makes a curve change
+ * a detectable save inconsistency instead of a silently wrong level on the base screen.
+ *
+ * `character.xp` must equal `campaign.xp`. XP has one home; the mirror exists because progression
+ * reads `character` while every existing reward/validation rule reads `campaign.xp`, and two fields
+ * that may disagree are exactly the class of bug doc 23 §5.3 rule 1 forbids.
+ */
+function checkCharacter(value: unknown, campaign: unknown, issues: SaveIssue[], curve: LevelCurve) {
+  if (!record(value)) return issue(issues, "$.character", "объект персонажа");
+  if (!int(value.xp)) issue(issues, "$.character.xp", "неотрицательное целое");
+  if (!int(value.level, 1) || value.level > maxLevel(curve)) issue(issues, "$.character.level", `целое 1..${maxLevel(curve)}`);
+  if (!int(value.unspentSkillPoints)) issue(issues, "$.character.unspentSkillPoints", "неотрицательное целое");
+  if (!int(value.xp) || !int(value.level, 1)) return;
+  if (record(campaign) && finite(campaign.xp) && campaign.xp !== value.xp) issue(issues, "$.character.xp", "совпадает с campaign.xp");
+  if (value.level !== levelForXp(value.xp, curve)) issue(issues, "$.character.level", "уровень соответствует xp по кривой прогрессии");
+  if (int(value.unspentSkillPoints) && value.unspentSkillPoints > skillPointsGranted(value.level, curve)) issue(issues, "$.character.unspentSkillPoints", "не больше начисленных за достигнутые уровни");
+}
 export function validateSave(input: unknown, options?: CampaignCatalog | SaveValidationOptions): SaveResult {
+  return validateVersioned(input, SAVE_SCHEMA_VERSION, options);
+}
+/**
+ * The shared validation body. `expected` is the version being validated, so a v4 payload can be
+ * checked *as a v4 payload* before migration without weakening any rule the two versions share.
+ */
+function validateVersioned(input: unknown, expected: SupportedSchemaVersion, options?: CampaignCatalog | SaveValidationOptions): SaveResult {
   const normalized = options && "missions" in options && !("campaignCatalog" in options) ? { campaignCatalog: options as CampaignCatalog } : options as SaveValidationOptions | undefined;
   const issues: SaveIssue[] = []; if (!record(input)) { issue(issues, "$", "объект"); return { ok: false, error: new SaveValidationError("shape", issues) }; }
-  if (input.schemaVersion !== SAVE_SCHEMA_VERSION) return { ok: false, error: new SaveValidationError("version", [{ path: "$.schemaVersion", message: "поддерживается только версия 4" }]) };
+  if (input.schemaVersion !== expected) return { ok: false, error: new SaveValidationError("version", [{ path: "$.schemaVersion", message: `поддерживается только версия ${expected}` }]) };
   if (!string(input.arenaId) || (input.activeEncounterId !== null && !string(input.activeEncounterId)) || !phases.has(input.phase) || !int(input.turn, 1) || !int(input.rngState) || !Array.isArray(input.units)) issue(issues, "$", "корректные поля сохранения");
   if (Array.isArray(input.units)) { const ids = new Set<string>(); input.units.forEach((u: unknown, i: number) => { checkUnit(u, `$.units[${i}]`, issues); if (record(u) && string(u.id)) ids.add(u.id) }); if (ids.size !== input.units.length || input.units.filter((u: any) => u?.id === "hero" && u?.team === "player").length !== 1) issue(issues, "$.units", "уникальные id и ровно один hero"); }
   const campaignCatalog = catalogOf(normalized);
-  validateCampaign(input.campaign, issues, campaignCatalog, input.activeEncounterId, input.phase);
+  validateCampaign(input.campaign, issues, campaignCatalog, input.activeEncounterId, input.phase, expected);
+  if (expected >= 5) checkCharacter(input.character, input.campaign, issues, campaignCatalog?.progression ?? DEFAULT_LEVEL_CURVE);
   checkInventory(input.inventory, issues, campaignCatalog);
   checkEquipmentLinks(input.units, input.inventory, issues, campaignCatalog);
   if (!isValidBase(input.base)) issue(issues, "$.base", "валидная база");
@@ -423,7 +473,58 @@ function normalizeV4(raw: any, catalog?: CampaignCatalog): any {
   } : rawCampaign
   return { ...raw, schemaVersion: 4, arenaId: map, activeEncounterId, campaign }
 }
-export function migrateSave(input: unknown, _fallbackArenaId?: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult { if (!record(input)) return { ok: false, error: new SaveValidationError("shape", [{ path: "$", message: "объект" }]) }; const normalized = options && "missions" in options && !("campaignCatalog" in options) ? { campaignCatalog: options as CampaignCatalog } : options as SaveValidationOptions | undefined; if (input.schemaVersion === 4) return validateSave(input, normalized); if (input.schemaVersion !== 3) return validateSave(input, normalized); const catalog = catalogOf(normalized); if (!catalog) return { ok: false, error: new SaveValidationError("shape", [{ path: "$.campaign", message: "migration requires a validated campaign catalog" }]) }; return validateSave(normalizeV4(input, catalog), normalized); }
+/**
+ * v4 → v5 (W4-05). Adds exactly two things and changes nothing else, per doc 23 §5.3 rule 1:
+ *
+ * | v4                  | v5                            | rule                                  | default            |
+ * |---------------------|-------------------------------|---------------------------------------|--------------------|
+ * | `campaign.xp`       | `campaign.xp`                 | unchanged                             | —                  |
+ * | —                   | `character.xp`                | mirrors `campaign.xp`                 | `campaign.xp`      |
+ * | —                   | `character.level`             | derived from the curve                | `levelForXp(xp)`   |
+ * | —                   | `character.unspentSkillPoints`| everything the reached levels granted | `skillPointsGranted(level)` |
+ * | —                   | `campaign.returnReason`       | `'retreat'` on the return screen, else `null` | see below  |
+ *
+ * Why `'retreat'` and not `'defeat'` for a migrated return screen. In v4 a retreat *was* a defeat,
+ * so the payload genuinely does not record which happened, and both produced `phase: 'defeat'`.
+ * Guessing `'defeat'` would charge an XP penalty for a state the player entered before the penalty
+ * existed — a retroactive punishment for upgrading. Guessing `'retreat'` costs at most one skipped
+ * penalty, once, on a save that is mid-return at the moment of the upgrade, and cannot be repeated
+ * because every later return records its own reason. The ambiguity is resolved in the player's
+ * favour and named here rather than left implicit.
+ *
+ * `unspentSkillPoints` is granted rather than zeroed: the levels were earned under the old save, and
+ * nothing spends points until W4-03, so zeroing them would silently delete earned progression the
+ * first time the spending UI ships.
+ */
+function normalizeV5(raw: any, curve: LevelCurve): any {
+  const campaign = record(raw.campaign) ? raw.campaign : undefined;
+  const xp = campaign && finite(campaign.xp) && campaign.xp >= 0 ? Math.floor(campaign.xp) : 0;
+  return {
+    ...raw,
+    schemaVersion: 5,
+    character: characterForXp(xp, curve),
+    ...(campaign ? { campaign: { ...campaign, xp, returnReason: campaign.screen === "return" ? "retreat" : null } } : {}),
+  };
+}
+/**
+ * Forward-only migration with the invalid source rejected **before** any field is rewritten:
+ * a v4 payload is validated as v4 first, and only a valid one is raised to v5. The v3 path is
+ * explicit rather than silent — v3 → v4 → v5, each stage validated by the same rules the version
+ * had — so a v3 save either upgrades or fails with the stage's own issue list.
+ */
+export function migrateSave(input: unknown, _fallbackArenaId?: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult {
+  if (!record(input)) return { ok: false, error: new SaveValidationError("shape", [{ path: "$", message: "объект" }]) };
+  const normalized = options && "missions" in options && !("campaignCatalog" in options) ? { campaignCatalog: options as CampaignCatalog } : options as SaveValidationOptions | undefined;
+  if (input.schemaVersion === SAVE_SCHEMA_VERSION) return validateSave(input, normalized);
+  if (input.schemaVersion !== 4 && input.schemaVersion !== 3) return validateSave(input, normalized);
+  const catalog = catalogOf(normalized);
+  if (!catalog) return { ok: false, error: new SaveValidationError("shape", [{ path: "$.campaign", message: "migration requires a validated campaign catalog" }]) };
+  const curve = catalog.progression ?? DEFAULT_LEVEL_CURVE;
+  const v4 = input.schemaVersion === 3 ? normalizeV4(input, catalog) : input;
+  const checked = validateVersioned(v4, 4, normalized);
+  if (!checked.ok) return checked;
+  return validateSave(normalizeV5(checked.value, curve), normalized);
+}
 export const serializeSave = (save: SaveData) => JSON.stringify(save);
 export function deserializeSave(raw: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult { try { return migrateSave(JSON.parse(raw), undefined, options); } catch { return { ok: false, error: new SaveValidationError("parse", [{ path: "$", message: "некорректный JSON" }]) }; } }
 export function defaultSave(arenaId: string, units: Unit[], equipmentOrCatalog?: EquipmentInstance[] | CampaignCatalog, missions?: readonly CampaignMission[], equipmentCatalog?: EquipmentCatalog): SaveData {
@@ -498,11 +599,85 @@ export function defaultSave(arenaId: string, units: Unit[], equipmentOrCatalog?:
       } : entry
     }),
   }
-  return { schemaVersion: 4, arenaId, activeEncounterId: null, phase: "player", turn: 1, rngState: DEFAULT_RNG_STATE, units: hydratedUnits, campaign, inventory: synchronizedInventory, base: defaultBase() };
+  return { schemaVersion: SAVE_SCHEMA_VERSION, arenaId, activeEncounterId: null, phase: "player", turn: 1, rngState: DEFAULT_RNG_STATE, units: hydratedUnits, campaign, character: characterForXp(campaign.xp, catalog?.progression ?? DEFAULT_LEVEL_CURVE), inventory: synchronizedInventory, base: defaultBase() };
 }
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 export const createMemoryStorage = (initial: Record<string, string> = {}): StorageLike => { const data = new Map(Object.entries(initial)); return { getItem: k => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v), removeItem: k => void data.delete(k) }; };
 export type SaveWriteResult = { ok: boolean; error?: string }
-export interface SaveAdapter { save(save: SaveData): boolean; saveDetailed(save: SaveData): SaveWriteResult; load(fallbackArenaId?: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult | null; backupCorrupt(): boolean; reset(): boolean; setValidationOptions(options: CampaignCatalog | SaveValidationOptions): void }
-export function createLocalStorageAdapter(storage?: StorageLike | null, initialOptions?: CampaignCatalog | SaveValidationOptions): SaveAdapter { const target = storage === undefined ? (typeof localStorage === "undefined" ? null : localStorage) : storage; let options = initialOptions; const detailed = (save: SaveData): SaveWriteResult => { if (!target) return { ok: false, error: "storage unavailable" }; const checked = validateSave(save, options); if (!checked.ok) return { ok: false, error: checked.error.message }; try { target.setItem(SAVE_STORAGE_KEY, serializeSave(checked.value)); return { ok: true }; } catch { return { ok: false, error: "storage unavailable" }; } }; return { save: s => detailed(s).ok, saveDetailed: detailed, load: (_fallback, loadOptions) => { if (!target) return { ok: false, error: new SaveValidationError("parse", [{ path: "$", message: "storage unavailable" }]) }; const raw = target.getItem(SAVE_STORAGE_KEY); if (raw === null) return null; return deserializeSave(raw, loadOptions ?? options)!; }, setValidationOptions: nextOptions => { options = nextOptions }, backupCorrupt: () => { if (!target) return false; const raw = target.getItem(SAVE_STORAGE_KEY); if (raw === null) return false; try { target.setItem(SAVE_BACKUP_KEY, raw); return true; } catch { return false; } }, reset: () => { if (!target) return false; try { target.removeItem(SAVE_STORAGE_KEY); return true; } catch { return false; } } };
+export interface SaveAdapter {
+  save(save: SaveData): boolean
+  saveDetailed(save: SaveData): SaveWriteResult
+  load(fallbackArenaId?: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult | null
+  /**
+   * True when the payload `load` would return lives under a **legacy** key, i.e. the installation
+   * has not yet been written in the current schema. The shell uses this to persist the migrated
+   * result immediately instead of leaving the old key as the live copy until the next transition.
+   */
+  hasPendingUpgrade(): boolean
+  backupCorrupt(): boolean
+  reset(): boolean
+  setValidationOptions(options: CampaignCatalog | SaveValidationOptions): void
+}
+export function createLocalStorageAdapter(storage?: StorageLike | null, initialOptions?: CampaignCatalog | SaveValidationOptions): SaveAdapter {
+  const target = storage === undefined ? (typeof localStorage === "undefined" ? null : localStorage) : storage;
+  let options = initialOptions;
+  /**
+   * The key the *current* payload lives under. On a first boot after a schema bump the current key
+   * is empty and a legacy key holds the player's save; `readSlot` reports which one answered, so
+   * `backupCorrupt` copies the payload that actually failed rather than an unrelated empty key.
+   */
+  const readSlot = (): { key: string; raw: string } | null => {
+    if (!target) return null;
+    for (const key of [SAVE_STORAGE_KEY, ...LEGACY_SAVE_STORAGE_KEYS]) {
+      const raw = target.getItem(key);
+      if (raw !== null) return { key, raw };
+    }
+    return null;
+  };
+  const detailed = (save: SaveData): SaveWriteResult => {
+    if (!target) return { ok: false, error: "storage unavailable" };
+    const checked = validateSave(save, options);
+    if (!checked.ok) return { ok: false, error: checked.error.message };
+    try {
+      target.setItem(SAVE_STORAGE_KEY, serializeSave(checked.value));
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "storage unavailable" };
+    }
+  };
+  return {
+    save: (s) => detailed(s).ok,
+    saveDetailed: detailed,
+    load: (_fallback, loadOptions) => {
+      if (!target) return { ok: false, error: new SaveValidationError("parse", [{ path: "$", message: "storage unavailable" }]) };
+      const slot = readSlot();
+      if (!slot) return null;
+      return deserializeSave(slot.raw, loadOptions ?? options)!;
+    },
+    hasPendingUpgrade: () => {
+      const slot = readSlot();
+      return slot !== null && slot.key !== SAVE_STORAGE_KEY;
+    },
+    setValidationOptions: (nextOptions) => { options = nextOptions },
+    backupCorrupt: () => {
+      const slot = readSlot();
+      if (!target || !slot) return false;
+      try {
+        target.setItem(SAVE_BACKUP_KEY, slot.raw);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    /* Clears every slot: leaving a legacy payload behind would resurrect it on the next boot. */
+    reset: () => {
+      if (!target) return false;
+      try {
+        for (const key of [SAVE_STORAGE_KEY, ...LEGACY_SAVE_STORAGE_KEYS]) target.removeItem(key);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
 }

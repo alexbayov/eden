@@ -140,7 +140,15 @@ export function persistedSave(): {
   turn: number;
   arenaId: string;
   units: Array<{ id: string; hp: number; ap: number }>;
-  campaign: { screen: string; xp: number; claimedRewards: string[] };
+  campaign: {
+    screen: string;
+    xp: number;
+    claimedRewards: string[];
+    firstDeathReturnUsed: boolean;
+    returnReason: "defeat" | "retreat" | null;
+  };
+  /** Save v5 progression block (W4-05). */
+  character: { level: number; xp: number; unspentSkillPoints: number };
   inventory: { stash: { resources: Array<{ id: string; quantity: number; weight: number }> } };
 } {
   const raw = readRawSave();
