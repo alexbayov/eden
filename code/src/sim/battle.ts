@@ -51,13 +51,20 @@ import {
 } from '../game/combat'
 import type { ArenaConfig } from '../game/content'
 import { nextRandom } from '../game/rng'
-import { resolveEnemyPhase } from '../game/session'
+import { evaluateObjective } from '../game/objective'
+import { resolveEnemyPhase, type ObjectiveResolution } from '../game/session'
 import { syncEquipmentInstances } from '../game/equipment-content'
 import type { SaveData } from '../game/save'
 import type { Policy, PolicyContext } from './policies'
 
 /** How a single simulated battle ended. */
-export type BattleOutcome = 'win' | 'loss' | 'ammo-empty' | 'turn-limit'
+/**
+ * `objective-failed` is new in W6-01: the hero is alive and nothing went wrong in combat, but the
+ * objective's own deadline passed. Kept distinct from `loss` because pooling them would report a
+ * design deadline as a balance failure, and distinct from `turn-limit` because that is the
+ * simulator's stalemate guard rather than a rule of the game.
+ */
+export type BattleOutcome = 'win' | 'loss' | 'ammo-empty' | 'turn-limit' | 'objective-failed'
 
 export interface ShotRecord {
   part: BodyPart
@@ -114,6 +121,17 @@ export interface BattleOptions {
    * silently as a loss — a turn-limit rate above zero is itself a balance finding.
    */
   turnLimit: number
+  /**
+   * W6-01 — the encounter's objective.
+   *
+   * Required for the measurement to mean anything once objectives exist: this loop used to declare a
+   * win the moment the last enemy died, which is exactly the assumption `secure` breaks. A simulator
+   * that kept it would report a win rate for a mission the player cannot finish that way.
+   *
+   * Defaulted by the caller rather than here, so a new encounter cannot silently be measured as an
+   * `eliminate`.
+   */
+  objective: ObjectiveResolution
 }
 
 const coverList = (arena: ArenaConfig): Cover[] => arena.cover.map((cover) => ({ ...cover, kind: cover.type }))
@@ -139,7 +157,7 @@ const durabilityOf = (unit: Unit | undefined) => ({
  * differently in the simulator than in the game.
  */
 export function simulateBattle(options: BattleOptions): BattleResult {
-  const { arena, policy, seed, turnLimit } = options
+  const { arena, policy, seed, turnLimit, objective } = options
   const cover = coverList(arena)
   let save: SaveData = { ...options.save, rngState: seed >>> 0, turn: 1, phase: 'player' }
   const heroStart = save.units.find((unit) => unit.id === 'hero')!
@@ -290,8 +308,30 @@ export function simulateBattle(options: BattleOptions): BattleResult {
       outcome = 'loss'
       break
     }
-    if (!units.some((unit) => unit.team === 'enemy' && isAlive(unit))) {
+    /*
+     * W6-01: the objective decides, not "the board is empty".
+     *
+     * Previously `!units.some(alive)` was the win condition, which measured every mission as an
+     * `eliminate`. Evaluated here on the player's own turn as well as inside the enemy phase, because
+     * an `escape` or `retrieve` completes on a hero action while an `eliminate` completes on the kill
+     * that ends the phase.
+     *
+     * Read-only: the turn clock is advanced by `resolveEnemyPhase` alone, so this cannot double-count a
+     * held turn — the bug that made a two-turn hold finish in 1.3 turns.
+     */
+    const playerEvaluation = evaluateObjective({
+      params: objective.params,
+      state: save.objective,
+      units,
+      turn: save.turn,
+      turnLimit: objective.turnLimit,
+    })
+    if (playerEvaluation.outcome === 'complete') {
       outcome = 'win'
+      break
+    }
+    if (playerEvaluation.outcome === 'failed') {
+      outcome = 'objective-failed'
       break
     }
 
@@ -309,7 +349,7 @@ export function simulateBattle(options: BattleOptions): BattleResult {
 
     // ---- enemy phase: delegated wholesale, including its roll order and rngState ---------
     const enemySnapshot: SaveData = { ...save, phase: 'enemy' }
-    const resolved = resolveEnemyPhase(enemySnapshot, arena)
+    const resolved = resolveEnemyPhase(enemySnapshot, arena, objective)
     if (resolved === enemySnapshot) {
       /* resolveEnemyPhase refuses non-mission snapshots; run the same primitives it would. */
       const fallback = { ...save, turn: save.turn + 1 }
@@ -318,13 +358,24 @@ export function simulateBattle(options: BattleOptions): BattleResult {
       save = resolved
     }
     recordKills(save.units, turns)
-    if (save.phase === 'defeat' || !isAlive(save.units.find((unit) => unit.id === 'hero')!)) {
+    if (!isAlive(save.units.find((unit) => unit.id === 'hero')!)) {
       outcome = 'loss'
       turns = Math.max(turns, save.turn)
       break
     }
-    if (!save.units.some((unit) => unit.team === 'enemy' && isAlive(unit))) {
+    /*
+     * W6-01: `resolveEnemyPhase` now decides the objective too, so its verdict is read rather than
+     * re-derived. `victory` covers a hold that completed on the enemy's clock; a `defeat` with a live
+     * hero is an expired deadline, which is a failed objective and not a loss — conflating them would
+     * report a balance problem where there is a design deadline.
+     */
+    if (save.phase === 'victory') {
       outcome = 'win'
+      break
+    }
+    if (save.phase === 'defeat') {
+      outcome = 'objective-failed'
+      turns = Math.max(turns, save.turn)
       break
     }
   }

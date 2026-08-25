@@ -620,7 +620,11 @@ describe('W5-03/W5-04 content contracts', () => {
       order: 1,
       name: 'M',
       description: 'test',
-      objective: 'secure' as const,
+      /* W6-01: an objective now carries validated parameters. Irrelevant to these W5 assertions, but a
+         catalog without them is no longer well-formed, so the fixture states them rather than relying
+         on the validator having once accepted a bare `secure`. */
+      objective: 'eliminate' as const,
+      objectiveParams: { kind: 'eliminate' as const },
       arenaId: 'a',
       difficulty: 0 as const,
       rewardId: 'r',

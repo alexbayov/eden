@@ -44,6 +44,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { simulateBattle, type BattleResult } from './battle'
+import type { MissionDefinition } from '../game/campaign-content'
+import type { ObjectiveResolution } from '../game/session'
 import { loadSimulationContent, type SimulationContent } from './content-source'
 import { missionStart, orderedMissions, progressTo, resolveVictory, campaignStart, type CampaignProgress } from './mission-save'
 import { POLICY_IDS, policyById, type Policy } from './policies'
@@ -52,6 +54,18 @@ import { deriveSeed } from './seed'
 
 export const DEFAULT_RUNS = 200
 export const DEFAULT_SEED = 12345
+
+/**
+ * W6-01 — an encounter's objective, as the battle loop needs it.
+ *
+ * Read straight off the validated mission rather than defaulted, because a default would make a new
+ * `secure`/`retrieve`/`escape` encounter silently measurable as an `eliminate` — reporting a win rate
+ * for a mission that cannot be finished that way.
+ */
+const objectiveFor = (mission: MissionDefinition): ObjectiveResolution => ({
+  params: mission.objectiveParams,
+  turnLimit: mission.turnLimit,
+})
 export const DEFAULT_POLICY = 'cover-torso'
 export const DEFAULT_MODE: SimulationMode = 'isolated'
 /**
@@ -225,6 +239,9 @@ function runIsolated(content: SimulationContent, options: CliOptions, policy: Po
         policy,
         seed: deriveSeed(options.seed, seedLabel(options, started.arena.id), runIndex),
         turnLimit: options.turnLimit,
+        /* W6-01: measured against the encounter's real objective. Passed explicitly rather than
+           defaulted, so a new encounter cannot be silently measured as an `eliminate`. */
+        objective: objectiveFor(mission),
       }),
     )
     return { encounterId: mission.id, arenaId: started.arena.id, results }
@@ -254,6 +271,7 @@ function runChain(content: SimulationContent, options: CliOptions, policy: Polic
         policy,
         seed: deriveSeed(options.seed, seedLabel(options, started.arena.id), runIndex),
         turnLimit: options.turnLimit,
+        objective: objectiveFor(mission),
       })
       collected.get(mission.id)!.push(result)
       /*

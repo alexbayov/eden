@@ -46,6 +46,7 @@ import type { MissionDefinition, RewardDefinition } from '../game/campaign-conte
 import { createEncounterUnits } from '../game/encounter'
 import { syncEquipmentInstances } from '../game/equipment-content'
 import type { Inventory } from '../game/inventory'
+import { initialObjectiveState } from '../game/objective'
 import { DEFAULT_RNG_STATE } from '../game/rng'
 import { awardRewardTransition } from '../game/rewards'
 import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from '../game/save'
@@ -184,6 +185,8 @@ export function missionStart(content: SimulationContent, progress: CampaignProgr
     character: characterForXp(campaign.xp, content.campaignCatalog.progression),
     inventory,
     base: progress.base,
+    /* W6-01: a mission starts with no objective progress, exactly as `beginMission` does in the game. */
+    objective: initialObjectiveState(),
   }
   const validated = validateSave(candidate, content.campaignCatalog)
   if (!validated.ok) throw validated.error

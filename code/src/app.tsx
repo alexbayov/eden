@@ -23,6 +23,7 @@ import {
 import { buildBasePanel } from "./game/base-view";
 import {
   canRetreatFromMission,
+  missionDefeat,
   missionVictory,
   retreatFromMission,
   returnFromMission,
@@ -64,14 +65,25 @@ import {
   totalWeight,
   transferItem,
   transferResource,
+  type Inventory,
 } from "./game/inventory";
 import {
   createLocalStorageAdapter,
   defaultSave,
+  SAVE_SCHEMA_VERSION,
   type SaveData,
   type BattlePhase,
   SaveValidationError,
 } from "./game/save";
+import {
+  canPickUp,
+  evaluateObjective,
+  initialObjectiveState,
+  objectiveProgress,
+  pickUpObjective,
+  type ObjectiveContext,
+  type ObjectiveState,
+} from "./game/objective";
 import {
   canBeginTransition,
   persistEnemyPhase,
@@ -269,6 +281,8 @@ export function App() {
   const campaign = bootView.ready?.campaign ?? LOADING_CAMPAIGN;
   const character = save?.character ?? LOADING_CHARACTER;
   const campaignMissions = catalog ? campaignMissionsOf(catalog.missions) : undefined;
+  /** W6-01 — the persisted half of objective progress; everything else is derived from the board. */
+  const objectiveState = save?.objective ?? initialObjectiveState();
   const inventory = save?.inventory;
   const base = save?.base;
   const hero = units.find((unit) => unit.id === "hero");
@@ -322,6 +336,40 @@ export function App() {
     [catalog, confirmingDismantle, inventory, units],
   );
   const activeMission = catalog ? catalog.missions.find((entry) => entry.id === (campaign.activeMissionId ?? campaign.mission.id)) ?? catalog.missions[0] : null;
+  /**
+   * W6-01 — the inputs the objective evaluator and its progress readout both read.
+   *
+   * One builder rather than two call sites assembling the same context, because a progress bar computed
+   * from different inputs than the completion rule is exactly how a UI starts lying about the mission.
+   * `units`/`state`/`turn` are parameters instead of closure reads so a handler can evaluate the board
+   * it is *about to* persist rather than the one already rendered.
+   */
+  const objectiveContextFor = (
+    contextUnits: readonly Unit[],
+    state: ObjectiveState,
+    turn: number,
+  ): ObjectiveContext => ({
+    params: activeMission?.objectiveParams ?? { kind: "eliminate" },
+    state,
+    units: contextUnits,
+    turn,
+    turnLimit: activeMission?.turnLimit,
+  });
+  /** W6-01 — the per-turn readout (criterion 2), from the same inputs the completion rule reads. */
+  const objectiveView =
+    campaign.screen === "mission" && activeMission
+      ? objectiveProgress(objectiveContextFor(units, objectiveState, save?.turn ?? 1))
+      : null;
+  /** The active objective as the enemy phase needs it, so `session.ts` stays free of catalog types. */
+  const objectiveResolution = {
+    params: activeMission?.objectiveParams ?? ({ kind: "eliminate" } as const),
+    turnLimit: activeMission?.turnLimit,
+  };
+  /** Whether the pickup control would do anything, read by both its label and its handler. */
+  const canTakeObjective =
+    phase === "player" &&
+    campaign.screen === "mission" &&
+    canPickUp(objectiveContextFor(units, objectiveState, save?.turn ?? 1));
   const activeReward = catalog && activeMission ? catalog.rewards.find((entry) => entry.id === activeMission.rewardId) ?? null : null;
   /**
    * The penalty the player is shown *before* confirming the return, and the exact object that is
@@ -360,12 +408,21 @@ export function App() {
     nextArena: ArenaConfig | null = arena,
     /* Only the two XP-changing transitions pass this: a reward claim and a death penalty. */
     nextCharacter: CharacterState = character,
+    /**
+     * W6-01 — objective progress.
+     *
+     * Defaults to the current state rather than to a fresh one, so an ordinary persist (an attack, a
+     * quick slot, a move) carries the objective forward instead of silently resetting a hold count.
+     * `beginMission` and the terminal transitions pass a fresh state explicitly; the save validator
+     * requires it to be inert outside a mission, so forgetting to reset is a caught error rather than
+     * a state a later mission inherits.
+     */
+    nextObjective: ObjectiveState = objectiveState,
   ) => {
      if (!nextArena || !nextInventory || !nextBase || !save) return;
      const persistedInventory = syncEquipmentInstances(nextInventory, nextUnits);
      const next: SaveData = {
-
-      schemaVersion: 5,
+      schemaVersion: SAVE_SCHEMA_VERSION,
       arenaId: nextArena.id,
       activeEncounterId: nextCampaign.activeMissionId,
       units: nextUnits,
@@ -376,6 +433,7 @@ export function App() {
       base: nextBase,
       turn: nextTurn,
       rngState: nextRngState,
+      objective: nextCampaign.screen === "mission" ? nextObjective : initialObjectiveState(),
     };
     const result = saveAdapter.saveDetailed(next);
     setSaveStatus(
@@ -536,15 +594,45 @@ export function App() {
     const next = units.map((unit) =>
       unit.id === hero.id ? { ...unit, x, y, ap: unit.ap - cost } : unit,
     );
-     const saved = persist(next);
-     if (!saved) return;
-      setTargetId(null);
-      setHover(null);
-      /* Collapse the full cell list after a move so the panel stays compact. */
-      setMovesExpanded(false);
-      requestAnimationFrame(() => disclosureRef.current?.focus());
-      setLog(`Перемещение: −${cost} ОЧ.`);
-
+    /**
+     * W6-01 — a move can now *finish* a mission, so it goes through the objective evaluator.
+     *
+     * `escape` completes by standing on the exit and `retrieve` by carrying the item there, which means
+     * movement is a mission-ending action for two of the four objective types. Before this, only an
+     * attack could end an encounter.
+     */
+    if (
+      !settleObjective(next, inventory!, save?.turn ?? 1, save?.rngState ?? 0, {
+        onActive: () => setLog(`Перемещение: −${cost} ОЧ.`),
+      })
+    )
+      return;
+    setTargetId(null);
+    setHover(null);
+    /* Collapse the full cell list after a move so the panel stays compact. */
+    setMovesExpanded(false);
+    requestAnimationFrame(() => disclosureRef.current?.focus());
+  }
+  /**
+   * W6-01 — takes the objective item (`retrieve`).
+   *
+   * A distinct action rather than an automatic pickup on arrival: the objective item is not inventory
+   * (it never enters the backpack and has no weight), so an implicit pickup would be an invisible state
+   * change on a cell the player may have simply walked across. `pickUpObjective` refuses rather than
+   * no-opping, so the button cannot report success for nothing.
+   */
+  function takeObjective() {
+    if (!hero || phase !== "player" || !inventory || !save) return;
+    const context = objectiveContextFor(units, objectiveState, save.turn);
+    const picked = pickUpObjective(context);
+    if (!picked) return setLog("Забрать груз можно только стоя на его клетке.");
+    if (
+      !settleObjective(units, inventory, save.turn, save.rngState, {
+        nextObjective: picked,
+        onActive: () => setLog("Груз забран. Доберитесь до точки выхода."),
+      })
+    )
+      return;
   }
   function changePosture(next: Posture) {
     if (!hero || phase !== "player") return;
@@ -627,41 +715,74 @@ export function App() {
           : entry,
       ),
     };
+    /**
+     * W6-01 — the objective decides, not "every enemy is dead".
+     *
+     * This used to be an inlined `every((unit) => !isAlive(unit))` on the enemy team, which is why the
+     * `secure` mission was a renamed cleanup. `settleObjective` runs the one evaluator and returns the
+     * transition, so an attack that clears the last enemy of an `eliminate` mission and an attack that
+     * merely wounds someone on an `escape` mission take the same code path.
+     */
     if (
-      next
-        .filter((unit) => unit.team === "enemy")
-        .every((unit) => !isAlive(unit))
-    ) {
-      const nextCampaign = missionVictory(campaign, catalog!.missions);
-       if (!persist(
-         next,
-         "victory",
-         nextCampaign,
-         actionInventory,
-         base,
-         save.turn,
-         rngState,
-       )) return;
-       setTargetId(null);
-      setLog("Победа. Награда готова на базе.");
-    } else {
-       if (!persist(
-         next,
-         "player",
-         campaign,
-         actionInventory,
-         base,
-         save.turn,
-         rngState,
-       )) return;
-       setLog(
-        action.malfunctioned
-          ? "Осечка: ОЧ, патрон и durability израсходованы; очистите оружие за 2 ОЧ."
-          : action.resolution?.hit
-            ? `Попадание: ${action.resolution.damage} урона.`
-            : "Промах.",
-      );
+      !settleObjective(next, actionInventory, save.turn, rngState, {
+        onActive: () =>
+          setLog(
+            action.malfunctioned
+              ? "Осечка: ОЧ, патрон и durability израсходованы; очистите оружие за 2 ОЧ."
+              : action.resolution?.hit
+                ? `Попадание: ${action.resolution.damage} урона.`
+                : "Промах.",
+          ),
+      })
+    )
+      return;
+  }
+  /**
+   * W6-01 — evaluates the mission objective after a player action and persists whatever it decided.
+   *
+   * One place, because every action that can finish a mission has to reach the same verdict: an attack
+   * that kills the last enemy, a move onto the exit cell, a pickup that completes a delivery. Before
+   * this, only the attack handler could end a mission, and only by clearing the board.
+   *
+   * Returns `false` when the persist failed, so callers can bail exactly as they did with `persist`.
+   * `onActive` is the caller's own message for "the mission continues", which is the only part of the
+   * outcome this function has no opinion about.
+   */
+  function settleObjective(
+    nextUnits: Unit[],
+    nextInventory: Inventory,
+    nextTurn: number,
+    nextRngState: number,
+    handlers: { onActive?: () => void; nextObjective?: ObjectiveState } = {},
+  ): boolean {
+    if (!catalog || !base || !save) return false;
+    const state = handlers.nextObjective ?? objectiveState;
+    const evaluation = evaluateObjective(objectiveContextFor(nextUnits, state, nextTurn));
+    if (evaluation.outcome === "complete") {
+      const nextCampaign = missionVictory(campaign, catalog.missions);
+      if (!persist(nextUnits, "victory", nextCampaign, nextInventory, base, nextTurn, nextRngState, arena, character, evaluation.state))
+        return false;
+      setTargetId(null);
+      setLog(`${evaluation.reason} Награда готова на базе.`);
+      return true;
     }
+    if (evaluation.outcome === "failed") {
+      /**
+       * The third way a mission can end (W6-01 criterion 4). Routed through `missionDefeat` because the
+       * encounter bookkeeping is identical — `failed`, retryable, no reward — but the *reason* shown to
+       * the player is the objective's, not "you were knocked out". The hero is still alive here.
+       */
+      const nextCampaign = missionDefeat(campaign);
+      if (!persist(nextUnits, "defeat", nextCampaign, nextInventory, base, nextTurn, nextRngState, arena, character, initialObjectiveState()))
+        return false;
+      setTargetId(null);
+      setLog(`Цель провалена. ${evaluation.reason}`);
+      return true;
+    }
+    if (!persist(nextUnits, "player", campaign, nextInventory, base, nextTurn, nextRngState, arena, character, evaluation.state))
+      return false;
+    handlers.onActive?.();
+    return true;
   }
   /**
    * W5-03 — applies the consumable in `index` during combat.
@@ -749,7 +870,9 @@ export function App() {
   }
   function resolveEnemy(snapshot: SaveData, overwatch = false) {
     if (!arena || !inventory || !base) return;
-     const resolved = resolveEnemyPhase(snapshot, arena);
+     /* W6-01: the enemy phase now also advances the objective clock — a `secure` hold is counted per
+        resolved turn, and a `retrieve`/`escape` deadline expires on one. */
+     const resolved = resolveEnemyPhase(snapshot, arena, objectiveResolution);
      if (!persist(
        resolved.units,
        resolved.phase,
@@ -758,15 +881,25 @@ export function App() {
        resolved.base,
        resolved.turn,
        resolved.rngState,
+       arena,
+       character,
+       resolved.objective,
      )) return;
      inFlight.current = false;
      timer.current = null;
+     /* A mission can now end on the enemy's turn for a reason that is not a defeat: the hold completed,
+        or the deadline passed while the hero is perfectly healthy. */
+     const objectiveEnded = resolved.campaign.screen !== "mission";
      setLog(
-      resolved.phase === "defeat"
-        ? "Оперативник выведен из строя. Возврат на базу."
-        : overwatch
-          ? "Overwatch завершён. Ваш ход."
-          : "Ваш ход: ОЧ восстановлены.",
+      resolved.phase === "victory"
+        ? "Цель выполнена. Награда готова на базе."
+        : resolved.phase === "defeat"
+          ? objectiveEnded && isAlive(resolved.units.find((unit) => unit.id === "hero")!)
+            ? "Цель провалена: время вышло. Возврат на базу."
+            : "Оперативник выведен из строя. Возврат на базу."
+          : overwatch
+            ? "Overwatch завершён. Ваш ход."
+            : "Ваш ход: ОЧ восстановлены.",
     );
   }
    function endTurn(overwatch = false) {
@@ -1080,6 +1213,17 @@ const arenas = await loadArenaCatalog(
               ...equipment.armor.map((entry) => entry.id),
             ]),
             ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
+            /**
+             * W6-01 — objective geometry, checked against the arena it will actually run on.
+             *
+             * The other half of objective validation lives in `checkMission`, which sees `missions.json`
+             * before any arena has been fetched and therefore cannot know the map size. An exit or pickup
+             * cell outside its arena is an unwinnable mission that looks perfectly valid in the mission
+             * file; failing the boot is the point.
+             */
+            arenaBounds: new Map(
+              arenas.all.map((entry) => [entry.id, { width: entry.width, height: entry.height }]),
+            ),
           },
         );
         if (!validatedCampaign.ok) throw validatedCampaign.error;
@@ -1759,6 +1903,60 @@ const arenas = await loadArenaCatalog(
             Дублирует карту для клавиатуры и касания. Все подписи видны без
             наведения курсора.
           </p>
+          {/*
+            W6-01 — the objective, every turn (criterion 2).
+
+            First in the panel because it is the answer to "what am I doing here", and a mission whose
+            goal is not "kill everything" is unplayable without it. The numbers come from
+            `objectiveProgress`, which reads the same state `evaluateObjective` reads, so the readout
+            cannot disagree with what actually ends the mission. `role="status"` rather than an alert:
+            it updates every turn and should not interrupt.
+          */}
+          {objectiveView && (
+            <section
+              class="objective-panel"
+              data-objective={objectiveView.kind}
+              data-objective-done={objectiveView.done}
+              data-objective-total={objectiveView.total}
+              aria-labelledby="objective-title"
+            >
+              <h3 id="objective-title">Цель</h3>
+              <p class="objective-label" role="status">
+                <b>{objectiveView.label}</b>
+                {objectiveView.detail ? ` · ${objectiveView.detail}` : ""}
+                {objectiveView.turnsLeft === null
+                  ? ""
+                  : ` · ходов осталось: ${objectiveView.turnsLeft}`}
+              </p>
+              <progress
+                class="objective-progress"
+                max={objectiveView.total}
+                value={objectiveView.done}
+                aria-label={`Прогресс цели: ${objectiveView.done} из ${objectiveView.total}`}
+              />
+              {/* Only rendered for `retrieve`, and only as an explicit action: the objective item is not
+                  inventory, so picking it up implicitly would be an invisible state change on a cell the
+                  player may have merely walked across. */}
+              {objectiveView.kind === "retrieve" && (
+                <button
+                  type="button"
+                  class="objective-take"
+                  data-objective-take="true"
+                  aria-disabled={!canTakeObjective}
+                  onClick={takeObjective}
+                >
+                  ЗАБРАТЬ ГРУЗ
+                  <small>
+                    {objectiveState.carrying
+                      ? "груз уже забран"
+                      : canTakeObjective
+                        ? "вы стоите на клетке груза"
+                        : "подойдите к клетке груза"}
+                  </small>
+                </button>
+              )}
+            </section>
+          )}
           <h3 id="tactical-targets-title">Видимые цели</h3>
           <div class="tactical-options" role="group" aria-labelledby="tactical-targets-title">
             {combatScreen.targets.map((option) => (

@@ -31,6 +31,7 @@ import { assignQuickSlot, createInventory } from "../game/inventory";
 import { nextRandom } from "../game/rng";
 import type { CampaignState, MissionProgress, MissionStatus } from "../game/campaign";
 import { characterForXp } from "../game/progression";
+import { initialObjectiveState, type ObjectiveState } from "../game/objective";
 import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from "../game/save";
 import type { ShippedContent } from "./campaign-content-fixtures";
 
@@ -99,6 +100,13 @@ export interface SaveFixtureOptions {
   quickSlots?: Readonly<Record<number, string>>;
   /** Hero weapon durability, so a field repair has something to restore. */
   heroWeaponDurability?: number;
+  /**
+   * W6-01 — objective progress to start from, for the specs that assert the completion boundary.
+   *
+   * Only meaningful for `screen: "mission"`: `validateSave` requires objective state to be inert
+   * anywhere else, so a fixture cannot use this to fabricate an unreachable state.
+   */
+  objective?: Partial<ObjectiveState>;
   /** Stash items, so the W5-04 dismantle specs have a stacked candidate to act on. */
   stashItems?: ReadonlyArray<{ id: string; quantity: number }>;
 }
@@ -313,6 +321,15 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
         : { ...character, unspentSkillPoints: options.unspentSkillPoints },
     inventory,
     base: seed.base,
+    /**
+     * W6-01 — objective progress.
+     *
+     * Overridable because a `secure` fixture that always starts at zero held turns cannot reach the
+     * completion boundary without replaying the whole hold, and the boundary is the interesting case.
+     * The validator still rejects non-zero progress outside an active mission, so a fixture cannot use
+     * this to build a state the game itself could not reach.
+     */
+    objective: { ...initialObjectiveState(), ...(options.objective ?? {}) },
   };
 
   const checked = validateSave(save, content.campaignCatalog);
@@ -324,19 +341,34 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
 }
 
 /**
- * A validated v5 fixture stripped back to the on-disk shape of a pre-upgrade (v4) save: no
- * `character` block and no `campaign.returnReason`.
+ * A validated fixture stripped back to the on-disk shape of a pre-upgrade (v4) save: no `character`
+ * block, no `campaign.returnReason` and no `objective`.
  *
  * Built by removal from a payload the *current* validator already accepted, rather than
  * hand-written, so the W4-05 upgrade spec cannot pass against a v4 shape the game never wrote.
+ * This is the longest migration chain the adapter has to survive (v4 → v5 → v6).
  */
 export function toLegacyV4Save(fixture: SaveFixture): { save: Record<string, unknown>; raw: string } {
   const legacy = { ...fixture.save } as Record<string, unknown>;
   delete legacy.character;
+  delete legacy.objective;
   const campaign = { ...fixture.save.campaign } as Record<string, unknown>;
   delete campaign.returnReason;
   legacy.schemaVersion = 4;
   legacy.campaign = campaign;
+  return { save: legacy, raw: JSON.stringify(legacy) };
+}
+
+/**
+ * The same fixture at v5: everything the current save has except `objective`.
+ *
+ * The single-hop case W6-01 introduced, kept separate from the v4 helper so a spec can state which
+ * upgrade it is exercising instead of inferring it from how many fields were deleted.
+ */
+export function toLegacyV5Save(fixture: SaveFixture): { save: Record<string, unknown>; raw: string } {
+  const legacy = { ...fixture.save } as Record<string, unknown>;
+  delete legacy.objective;
+  legacy.schemaVersion = 5;
   return { save: legacy, raw: JSON.stringify(legacy) };
 }
 

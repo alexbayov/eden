@@ -7,10 +7,18 @@ import { expect, type Locator, type Page, type ConsoleMessage } from "@playwrigh
  * asserts these literals still match, so drift fails the E2E run instead of
  * silently turning `clearSave`/`seedSave` into no-ops.
  */
-export const SAVE_STORAGE_KEY = "eden.save.v5";
-export const SAVE_BACKUP_KEY = "eden.save.v5.corrupt-backup";
-/** The previous key, kept so the W4-05 migration spec can seed a pre-upgrade payload. */
+export const SAVE_STORAGE_KEY = "eden.save.v6";
+export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
+/**
+ * Older keys, newest first, kept so the migration specs can seed a pre-upgrade payload.
+ *
+ * `LEGACY_SAVE_STORAGE_KEY` stays pointed at the v4 key because that is the two-hop case the W4-05
+ * spec exercises — a save that predates *both* the character block and objective state, which is the
+ * longest chain the adapter has to survive.
+ */
 export const LEGACY_SAVE_STORAGE_KEY = "eden.save.v4";
+/** The v5 key, for the single-hop v5 → v6 case W6-01 introduced. */
+export const LEGACY_V5_SAVE_STORAGE_KEY = "eden.save.v5";
 
 /**
  * Boot phases exposed by the shell's loading screen via `data-boot-phase`.

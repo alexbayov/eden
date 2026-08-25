@@ -129,6 +129,12 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
       { zones, missions, rewards, items, recipes, upgrades },
       new Set(arenas.all.map((arena) => arena.id)),
       new Set(items.map((item) => item.id)),
+      {
+        /* W6-01: the simulator loads through the same cross-file checks the shell does, so a mutated
+           catalog with an out-of-bounds objective fails here rather than producing a run whose win rate
+           silently describes an unwinnable mission. */
+        arenaBounds: new Map(arenas.all.map((arena) => [arena.id, { width: arena.width, height: arena.height }])),
+      },
     )
     if (!validated.ok) throw validated.error
     const unlocked = new Set(validated.value.zones.filter((zone) => zone.unlocked).map((zone) => zone.id))

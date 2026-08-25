@@ -246,7 +246,7 @@ test.describe("W1-04 reload at every campaign stage", () => {
 test.describe("W4-05 schema upgrade and W4-01 level progress across a reload", () => {
   const curve = content.progression.curve;
 
-  test("continues a save created before the upgrade, raising it to v5 with a derived level", async ({ page }) => {
+  test("continues a save created before the upgrade, raising it through v5 to v6 with a derived level", async ({ page }) => {
     /* W4-05 acceptance criterion 6, and the reason `LEGACY_SAVE_STORAGE_KEYS` exists: the payload
        sits under the *old* key, in the *old* shape, exactly as a player's browser would have it
        after the app updates underneath them. Nothing may be lost and nothing may be invented. */
@@ -264,7 +264,9 @@ test.describe("W4-05 schema upgrade and W4-01 level progress across a reload", (
     await expect(page.locator("main.game-shell.recovery")).toHaveCount(0);
     await expect(phaseLabel(page)).toHaveText("БАЗА");
     const migrated = await readSave(page);
-    expect(migrated.schemaVersion).toBe(5);
+    /* W6-01: a v4 payload is now two hops from current (v4 -> v5 -> v6), and each stage is validated by
+       its own version's rules before the next field is added. */
+    expect(migrated.schemaVersion).toBe(6);
     /* XP is carried, and the level/points are derived from the curve rather than reset. */
     expect(migrated.campaign.xp).toBe(xp);
     expect(migrated.character).toEqual({

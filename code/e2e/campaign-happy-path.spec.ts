@@ -3,6 +3,7 @@ import {
   clearSave,
   collectConsoleErrors,
   encounterStatus,
+  endTurnButton,
   fireAtFirstTarget,
   gotoApp,
   missionCard,
@@ -207,9 +208,18 @@ test.describe("W1-03 campaign happy path", () => {
 
       const isLast = index === encounters.length - 1;
       if (encounter.arenaId === "relay-station") {
-        /* Second target: re-seed a fixture whose *next* shot kills the surviving defender, with
-           the first defender already down. Playing on from the live page would depend on the
-           enemy turn's RNG, which is exactly the non-determinism this design avoids. */
+        /*
+         * W6-01 — the third encounter is a real `secure`, not a cleanup.
+         *
+         * Clearing the board no longer completes it: the objective is to hold the platform for
+         * `holdTurns` consecutive turns, and the hold is only counted while no living enemy stands in
+         * the zone. So the sequence is: kill both defenders, then end turns until the hold completes.
+         *
+         * The second kill is re-seeded rather than played on from the live page for the reason the
+         * previous version of this test gave — the surviving defender is out of line of sight, and
+         * walking into it would depend on the enemy turn's RNG. `heroAt` is the zone centre, which is
+         * both the firing position and the point being secured.
+         */
         const followUp = buildLethalShotFixture(content, {
           screen: "mission",
           encounterId: encounter.id,
@@ -222,6 +232,22 @@ test.describe("W1-03 campaign happy path", () => {
         await seedRawSave(page, followUp.raw);
         await gotoApp(page);
         await fireAtFirstTarget(page);
+
+        /* The board is clear and the mission is still running — which is the whole point of W6-01. */
+        await expect(phaseLabel(page)).toHaveText("ВАШ ХОД");
+        const objective = page.locator(".objective-panel");
+        await expect(objective).toHaveAttribute("data-objective", "secure");
+        const holdTurns = Number(await objective.getAttribute("data-objective-total"));
+        expect(holdTurns).toBeGreaterThan(1);
+
+        /* Each ended turn is one counted hold turn, because the hero is standing in the zone and
+           nothing living contests it. Read off the panel rather than hardcoded, so a content change to
+           `holdTurns` updates the loop instead of breaking it. */
+        for (let held = 0; held < holdTurns; held += 1) {
+          await expect(objective).toHaveAttribute("data-objective-done", String(held));
+          await endTurnButton(page).click();
+          await expect(phaseLabel(page)).not.toHaveText("ПРОТИВНИК");
+        }
       }
 
       await expect(phaseLabel(page)).toHaveText("НАГРАДА");

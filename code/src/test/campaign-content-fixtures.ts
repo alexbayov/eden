@@ -53,8 +53,23 @@ import type { CampaignCatalog } from "../game/save";
 const CONFIG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "public", "config");
 
 /** Reads a shipped config file straight from `public/config`. */
-export const readShippedConfig = (name: string): unknown =>
+const readDiskConfig = (name: string): unknown =>
   JSON.parse(readFileSync(join(CONFIG_DIR, name.endsWith(".json") ? name : `${name}.json`), "utf8")) as unknown;
+
+/** Reads a shipped config file straight from `public/config`. */
+export const readShippedConfig = readDiskConfig;
+
+/**
+ * Config overrides by file name, for the cases where the shipped catalog cannot express a rule under
+ * test.
+ *
+ * Added for W6-01: the objective runtime resolves four types, and the MVP zone ships only two of them
+ * (`eliminate` and `secure`). Testing `retrieve`/`escape` by adding content the design has not asked for
+ * would put invented missions in front of players; overriding the catalog keeps the *runtime* covered and
+ * leaves content decisions to W7. Overridden files still go through the real validators, so an override
+ * cannot describe a catalog the game would refuse to load.
+ */
+export type ContentOverrides = Readonly<Record<string, unknown>>;
 
 const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: Error }, label: string): T => {
   if (!result.ok) throw new Error(`shipped ${label} is invalid: ${result.error.message}`);
@@ -82,7 +97,11 @@ export interface ShippedContent {
 }
 
 /** Loads and validates the shipped catalogs. Arenas come from the manifest, not a hardcoded list. */
-export function loadShippedContent(): ShippedContent {
+export function loadShippedContent(overrides: ContentOverrides = {}): ShippedContent {
+  /* Overridden files are read from the override map, everything else from disk. One indirection so a
+     spec cannot accidentally validate an override against a different file's rules. */
+  const readShippedConfig = (name: string): unknown =>
+    Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : readDiskConfig(name);
   const manifest = parseArenaManifest(readShippedConfig("arena-manifest.json"));
   const equipment = parseEquipmentCatalog(readShippedConfig("equipment.json"));
   const arenaList = manifest.entries.map((entry) => {
@@ -113,6 +132,9 @@ export function loadShippedContent(): ShippedContent {
       {
         equipmentIds: new Set([...equipment.weapons.map((entry) => entry.id), ...equipment.armor.map((entry) => entry.id)]),
         ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
+        /* W6-01: objective geometry is bounds-checked against the arena it runs on, so a fixture cannot
+           load an exit cell outside the map — an unwinnable mission that looks valid in `missions.json`. */
+        arenaBounds: new Map(arenas.all.map((arena) => [arena.id, { width: arena.width, height: arena.height }])),
       },
     ),
     "campaign catalog",

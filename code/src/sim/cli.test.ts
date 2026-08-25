@@ -188,6 +188,9 @@ describe('mission-start saves are the game\'s own states', () => {
       policy: POLICIES[DEFAULT_POLICY],
       seed: deriveSeed(DEFAULT_SEED, `${DEFAULT_POLICY}:${first.arena.id}`, 0),
       turnLimit: 40,
+      /* W6-01: read off the mission, so this stays a measurement of the shipped objective rather than
+         an assumption that every encounter is an `eliminate`. */
+      objective: { params: missions[0].objectiveParams, turnLimit: missions[0].turnLimit },
     })
     if (battle.outcome !== 'win') throw new Error('фиксированный seed перестал давать победу на первой encounter')
     const next = missionStart(content, resolveVictory(content, first.progress, battle.finalUnits), missions[1].id)

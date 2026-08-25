@@ -6,10 +6,11 @@ import { createInventory, isEquipmentSlot, isResourceId, type EquipmentInstance,
 import { DEFAULT_RNG_STATE } from "./rng";
 import { hydrateArenaUnits, type ArmorDefinition, type EquipmentCatalog, type WeaponDefinition } from "./equipment-content";
 import { DEFAULT_LEVEL_CURVE, characterForXp, levelForXp, maxLevel, skillPointsGranted, type CharacterState, type LevelCurve } from "./progression";
+import { initialObjectiveState, isObjectiveState, type ObjectiveState } from "./objective";
 
-export const SAVE_SCHEMA_VERSION = 5;
-export const SAVE_STORAGE_KEY = "eden.save.v5";
-export const SAVE_BACKUP_KEY = "eden.save.v5.corrupt-backup";
+export const SAVE_SCHEMA_VERSION = 6;
+export const SAVE_STORAGE_KEY = "eden.save.v6";
+export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
 /**
  * Keys written by earlier schema versions, newest first. Read-only: the adapter falls back to them
  * when the current key is empty, migrates what it finds and writes the result under the current
@@ -17,9 +18,29 @@ export const SAVE_BACKUP_KEY = "eden.save.v5.corrupt-backup";
  * them at a fresh campaign — the exact failure W4-05 criterion 6 exists to catch. The old key is
  * left in place rather than deleted, so a failed upgrade is recoverable by downgrading.
  */
-export const LEGACY_SAVE_STORAGE_KEYS = ["eden.save.v4"] as const;
+export const LEGACY_SAVE_STORAGE_KEYS = ["eden.save.v5", "eden.save.v4"] as const;
 export type BattlePhase = "player" | "enemy" | "victory" | "defeat";
-export interface SaveData { schemaVersion: 5; arenaId: string; activeEncounterId: string | null; phase: BattlePhase; turn: number; rngState: number; units: Unit[]; campaign: CampaignState; character: CharacterState; inventory: Inventory; base: BaseState }
+export interface SaveData {
+  schemaVersion: 6;
+  arenaId: string;
+  activeEncounterId: string | null;
+  phase: BattlePhase;
+  turn: number;
+  rngState: number;
+  units: Unit[];
+  campaign: CampaignState;
+  character: CharacterState;
+  inventory: Inventory;
+  base: BaseState;
+  /**
+   * W6-01 — the only objective facts the board cannot reproduce: consecutive held turns, and whether
+   * the objective item has been picked up.
+   *
+   * Everything else an objective needs — enemies alive, hero position, turn number — is already in
+   * this save, and copying it here would create a second source of truth that can drift from `units`.
+   */
+  objective: ObjectiveState;
+}
 export interface SaveIssue { path: string; message: string }
 export interface CampaignCatalog { catalogId?: string; missions: readonly CampaignMission[]; missionIds: ReadonlySet<string>; rewardIds: ReadonlySet<string>; arenaIds: ReadonlySet<string>; zoneIds?: ReadonlySet<string>; itemIds?: ReadonlySet<string>; itemWeightForId?: (itemId: string) => number | undefined; weaponIds?: ReadonlySet<string>; weaponForId?: (weaponId: string) => WeaponDefinition | undefined; armorIds?: ReadonlySet<string>; armorSlotForId?: (itemId: string) => string | undefined; armorForId?: (armorId: string) => ArmorDefinition | undefined; ammoIds?: ReadonlySet<string>; ammoForId?: (ammoId: string) => { damageModifier: number; penetrationModifier: number } | undefined; /** Level curve the save's `character` block is validated against; defaults to the shipped curve. */ progression?: LevelCurve; rewardIdForMission: (missionId: string) => string | undefined; arenaIdForMission: (missionId: string) => string | undefined }
 export interface SaveValidationOptions { campaignCatalog?: CampaignCatalog; campaignMissions?: readonly CampaignMission[] }
@@ -277,7 +298,7 @@ function catalogOf(options?: SaveValidationOptions): CampaignCatalog | undefined
  * отклоняется до миграции"). Everything the two share is one code path; the two fields that differ
  * (`character`, `campaign.returnReason`) are gated on the version rather than duplicated.
  */
-export type SupportedSchemaVersion = 4 | 5;
+export type SupportedSchemaVersion = 4 | 5 | 6;
 const progressKeys = ["id", "status", "victories", "firstRewardClaimed", "rewardId", "mapId", "arenaId"] as const;
 const validMissionStatuses = new Set(["locked", "available", "active", "completed", "failed"]);
 const checkProgressShape = (value: unknown, path: string, issues: SaveIssue[]) => {
@@ -434,6 +455,20 @@ function validateVersioned(input: unknown, expected: SupportedSchemaVersion, opt
   const campaignCatalog = catalogOf(normalized);
   validateCampaign(input.campaign, issues, campaignCatalog, input.activeEncounterId, input.phase, expected);
   if (expected >= 5) checkCharacter(input.character, input.campaign, issues, campaignCatalog?.progression ?? DEFAULT_LEVEL_CURVE);
+  /**
+   * W6-01 — objective state, from v6.
+   *
+   * Validated even though both fields have safe defaults, because a hand-edited `heldTurns` is a free
+   * mission completion: `evaluateObjective` compares it against `holdTurns` and does not re-derive it
+   * from the board. The state is also required to be *inert* outside an active mission — a save sitting
+   * on the home screen carrying `carrying: true` would hand the player a delivered objective the moment
+   * the next retrieval mission starts.
+   */
+  if (expected >= 6) {
+    if (!isObjectiveState(input.objective)) issue(issues, "$.objective", "heldTurns >= 0 и carrying");
+    else if (record(input.campaign) && input.campaign.screen !== "mission" && (input.objective.heldTurns !== 0 || input.objective.carrying))
+      issue(issues, "$.objective", "сброшено вне активной миссии");
+  }
   checkInventory(input.inventory, issues, campaignCatalog);
   checkEquipmentLinks(input.units, input.inventory, issues, campaignCatalog);
   if (!isValidBase(input.base)) issue(issues, "$.base", "валидная база");
@@ -507,23 +542,48 @@ function normalizeV5(raw: any, curve: LevelCurve): any {
   };
 }
 /**
+ * v5 → v6 (W6-01). Adds exactly one field and changes nothing else, per doc 23 §5.3 rule 1:
+ *
+ * | v5 | v6          | rule                                            | default                    |
+ * |----|-------------|-------------------------------------------------|----------------------------|
+ * | —  | `objective` | fresh state; mid-mission progress is not invented | `{ heldTurns: 0, carrying: false }` |
+ *
+ * Why a *fresh* state rather than a guess, even for a save caught mid-mission. A v5 payload predates
+ * objectives entirely: every shipped mission was resolved by clearing the map, so there is no held-turn
+ * count or pickup flag to recover — the information was never recorded. Zeroing is also the only choice
+ * that cannot *give* anything away: inventing `carrying: true` would hand out a delivered objective, and
+ * inventing `heldTurns` would hand out mission completion. The cost is bounded and one-off — a player
+ * mid-`secure` at the moment of the upgrade re-holds the point — and it is paid in the direction that
+ * cannot be exploited.
+ */
+function normalizeV6(raw: any): any {
+  return { ...raw, schemaVersion: 6, objective: initialObjectiveState() };
+}
+/**
  * Forward-only migration with the invalid source rejected **before** any field is rewritten:
- * a v4 payload is validated as v4 first, and only a valid one is raised to v5. The v3 path is
- * explicit rather than silent — v3 → v4 → v5, each stage validated by the same rules the version
- * had — so a v3 save either upgrades or fails with the stage's own issue list.
+ * each stage is validated by the rules its own version had, so a save either upgrades cleanly or fails
+ * with the offending stage's issue list. The chain is explicit rather than silent — v3 → v4 → v5 → v6 —
+ * which is what keeps a two-version-old save from being rewritten by rules it never satisfied.
  */
 export function migrateSave(input: unknown, _fallbackArenaId?: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult {
   if (!record(input)) return { ok: false, error: new SaveValidationError("shape", [{ path: "$", message: "объект" }]) };
   const normalized = options && "missions" in options && !("campaignCatalog" in options) ? { campaignCatalog: options as CampaignCatalog } : options as SaveValidationOptions | undefined;
   if (input.schemaVersion === SAVE_SCHEMA_VERSION) return validateSave(input, normalized);
-  if (input.schemaVersion !== 4 && input.schemaVersion !== 3) return validateSave(input, normalized);
+  if (input.schemaVersion !== 5 && input.schemaVersion !== 4 && input.schemaVersion !== 3) return validateSave(input, normalized);
   const catalog = catalogOf(normalized);
   if (!catalog) return { ok: false, error: new SaveValidationError("shape", [{ path: "$.campaign", message: "migration requires a validated campaign catalog" }]) };
   const curve = catalog.progression ?? DEFAULT_LEVEL_CURVE;
+  /* A v5 source skips the v4 stage entirely; it is already past it. */
+  if (input.schemaVersion === 5) {
+    const checkedV5 = validateVersioned(input, 5, normalized);
+    return checkedV5.ok ? validateSave(normalizeV6(checkedV5.value), normalized) : checkedV5;
+  }
   const v4 = input.schemaVersion === 3 ? normalizeV4(input, catalog) : input;
   const checked = validateVersioned(v4, 4, normalized);
   if (!checked.ok) return checked;
-  return validateSave(normalizeV5(checked.value, curve), normalized);
+  const v5 = validateVersioned(normalizeV5(checked.value, curve), 5, normalized);
+  if (!v5.ok) return v5;
+  return validateSave(normalizeV6(v5.value), normalized);
 }
 export const serializeSave = (save: SaveData) => JSON.stringify(save);
 export function deserializeSave(raw: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult { try { return migrateSave(JSON.parse(raw), undefined, options); } catch { return { ok: false, error: new SaveValidationError("parse", [{ path: "$", message: "некорректный JSON" }]) }; } }
@@ -599,7 +659,7 @@ export function defaultSave(arenaId: string, units: Unit[], equipmentOrCatalog?:
       } : entry
     }),
   }
-  return { schemaVersion: SAVE_SCHEMA_VERSION, arenaId, activeEncounterId: null, phase: "player", turn: 1, rngState: DEFAULT_RNG_STATE, units: hydratedUnits, campaign, character: characterForXp(campaign.xp, catalog?.progression ?? DEFAULT_LEVEL_CURVE), inventory: synchronizedInventory, base: defaultBase() };
+  return { schemaVersion: SAVE_SCHEMA_VERSION, arenaId, activeEncounterId: null, phase: "player", turn: 1, rngState: DEFAULT_RNG_STATE, units: hydratedUnits, campaign, character: characterForXp(campaign.xp, catalog?.progression ?? DEFAULT_LEVEL_CURVE), inventory: synchronizedInventory, base: defaultBase(), objective: initialObjectiveState() };
 }
 export interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 export const createMemoryStorage = (initial: Record<string, string> = {}): StorageLike => { const data = new Map(Object.entries(initial)); return { getItem: k => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v), removeItem: k => void data.delete(k) }; };

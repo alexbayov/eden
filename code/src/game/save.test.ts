@@ -29,20 +29,34 @@ const activeSave = (id = 'perimeter-checkpoint') => {
   return { ...base, arenaId: campaign.activeMapId!, activeEncounterId: id, campaign }
 }
 /**
- * Strips a v5 save back to the exact shape a pre-upgrade installation had on disk: no `character`
- * block and no `campaign.returnReason`. Built by removal from a *validated* v5 payload rather than
- * hand-written, so a v4 fixture cannot drift into describing a state the game never wrote.
+ * Strips a current save back to the exact shape a pre-upgrade installation had on disk: no
+ * `character` block, no `campaign.returnReason` and — since W6-01 — no `objective`. Built by removal
+ * from a *validated* payload rather than hand-written, so a legacy fixture cannot drift into
+ * describing a state the game never wrote.
  */
-type LegacyV4Save = Omit<SaveData, 'schemaVersion' | 'character' | 'campaign'> & {
+type LegacyV4Save = Omit<SaveData, 'schemaVersion' | 'character' | 'campaign' | 'objective'> & {
   schemaVersion: 4
   campaign: Omit<SaveData['campaign'], 'returnReason'>
 }
 const asV4 = (save: SaveData): LegacyV4Save => {
   const rest = { ...save } as Partial<SaveData>
   delete rest.character
+  delete rest.objective
   const campaign = { ...save.campaign } as Partial<SaveData['campaign']>
   delete campaign.returnReason
   return { ...rest, schemaVersion: 4, campaign } as LegacyV4Save
+}
+/**
+ * The v5 shape: everything the current save has except `objective` (W6-01's only addition).
+ *
+ * Exists so the v5 → v6 migration is tested from a payload that a v5 installation could actually have
+ * written, rather than from a current save with one field deleted by hand.
+ */
+type LegacyV5Save = Omit<SaveData, 'schemaVersion' | 'objective'> & { schemaVersion: 5 }
+const asV5 = (save: SaveData): LegacyV5Save => {
+  const rest = { ...save } as Partial<SaveData>
+  delete rest.objective
+  return { ...rest, schemaVersion: 5 } as LegacyV5Save
 }
 const expectReloads = (save: ReturnType<typeof activeSave>, status: 'active' | 'failed' | 'completed', phase: 'player' | 'defeat' | 'victory') => {
   const adapter = createLocalStorageAdapter(createMemoryStorage(), catalog)
@@ -54,7 +68,7 @@ describe('save data contract v5', () => {
   it('creates, serializes, validates and deep-copies complete campaign state', () => {
     const save = defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS)
     expect(save.schemaVersion).toBe(SAVE_SCHEMA_VERSION)
-    expect(SAVE_SCHEMA_VERSION).toBe(5)
+    expect(SAVE_SCHEMA_VERSION).toBe(6)
     expect(save.character).toEqual({ level: 1, xp: 0, unspentSkillPoints: 0 })
     const result = deserializeSave(serializeSave(save), catalog)
     expect(result).toEqual({ ok: true, value: save })
@@ -64,7 +78,7 @@ describe('save data contract v5', () => {
   it('normalizes v3 active encounters through v4 to catalog arena and map IDs', () => {
     const active = asV4(activeSave())
     const v3 = { ...active, schemaVersion: 3, arenaId: 'stale-arena', activeEncounterId: undefined, campaign: { ...active.campaign, activeMapId: undefined, mission: { ...active.campaign.mission, mapId: 'stale-map' }, encounters: active.campaign.encounters.map((entry) => ({ ...entry, mapId: 'stale-map' })) } }
-    expect(migrateSave(v3, undefined, catalog)).toMatchObject({ ok: true, value: { schemaVersion: 5, arenaId: 'perimeter-checkpoint', activeEncounterId: 'perimeter-checkpoint', campaign: { activeMapId: 'perimeter-checkpoint', mission: { mapId: 'perimeter-checkpoint' } } } })
+    expect(migrateSave(v3, undefined, catalog)).toMatchObject({ ok: true, value: { schemaVersion: 6, arenaId: 'perimeter-checkpoint', activeEncounterId: 'perimeter-checkpoint', campaign: { activeMapId: 'perimeter-checkpoint', mission: { mapId: 'perimeter-checkpoint' } } } })
   })
 
   it('migrates a valid v3 home save without inventing an active mission', () => {
@@ -84,10 +98,12 @@ describe('save data contract v5', () => {
     expect(migrateSave(v3, undefined, catalog)).toMatchObject({
       ok: true,
       value: {
-        schemaVersion: 5,
+        schemaVersion: 6,
         arenaId: 'stale-arena',
         activeEncounterId: null,
         campaign: { screen: 'home', activeMissionId: null, activeMapId: null },
+        /* W6-01: a two-hop migration lands on fresh objective state, not on a guess. */
+        objective: { heldTurns: 0, carrying: false },
       },
     })
   })
@@ -206,7 +222,7 @@ describe('save schema v5 migration from v4', () => {
     expect('character' in v4).toBe(false)
     expect('returnReason' in v4.campaign).toBe(false)
     const migrated = migrateSave(v4, undefined, catalog)
-    expect(migrated).toMatchObject({ ok: true, value: { schemaVersion: 5, character: { level: 1, xp: 0, unspentSkillPoints: 0 } } })
+    expect(migrated).toMatchObject({ ok: true, value: { schemaVersion: 6, character: { level: 1, xp: 0, unspentSkillPoints: 0 } } })
     if (migrated.ok) expect(migrated.value.campaign.returnReason).toBeNull()
   })
 
@@ -259,15 +275,15 @@ describe('save schema v5 migration from v4', () => {
 
   it('rejects a save from a future version rather than downgrading it', () => {
     const valid = defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS)
-    const future = migrateSave({ ...valid, schemaVersion: 6 }, undefined, catalog)
+    const future = migrateSave({ ...valid, schemaVersion: 7 }, undefined, catalog)
     expect(future.ok).toBe(false)
     if (!future.ok) expect(future.error.code).toBe('version')
   })
 
   it('uses a v5-specific storage and backup key so a v4 payload is never read as v5', () => {
-    expect(SAVE_STORAGE_KEY).toBe('eden.save.v5')
-    expect(SAVE_BACKUP_KEY).toBe('eden.save.v5.corrupt-backup')
-    expect(LEGACY_SAVE_STORAGE_KEYS).toEqual(['eden.save.v4'])
+    expect(SAVE_STORAGE_KEY).toBe('eden.save.v6')
+    expect(SAVE_BACKUP_KEY).toBe('eden.save.v6.corrupt-backup')
+    expect(LEGACY_SAVE_STORAGE_KEYS).toEqual(['eden.save.v5', 'eden.save.v4'])
     const storage = createMemoryStorage({ [SAVE_STORAGE_KEY]: '{' })
     const adapter = createLocalStorageAdapter(storage, catalog)
     expect(adapter.load(undefined, catalog)).toMatchObject({ ok: false })
@@ -284,17 +300,17 @@ describe('save schema v5 migration from v4', () => {
     const adapter = createLocalStorageAdapter(storage, catalog)
     expect(adapter.hasPendingUpgrade()).toBe(true)
     const loaded = adapter.load(undefined, catalog)
-    expect(loaded).toMatchObject({ ok: true, value: { schemaVersion: 5, character: { level: 1 } } })
+    expect(loaded).toMatchObject({ ok: true, value: { schemaVersion: 6, character: { level: 1 } } })
 
     /* Writing puts the live copy under the current key and leaves the legacy payload intact. */
     if (!loaded?.ok) throw new Error('expected the legacy payload to migrate')
     expect(adapter.save(loaded.value)).toBe(true)
     expect(adapter.hasPendingUpgrade()).toBe(false)
     expect(storage.getItem(LEGACY_SAVE_STORAGE_KEYS[0])).toBe(JSON.stringify(legacy))
-    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY)!).schemaVersion).toBe(5)
+    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY)!).schemaVersion).toBe(6)
 
     /* A current-key payload wins over a legacy one, so a stale v4 can never shadow live progress. */
-    expect(adapter.load(undefined, catalog)).toMatchObject({ ok: true, value: { schemaVersion: 5 } })
+    expect(adapter.load(undefined, catalog)).toMatchObject({ ok: true, value: { schemaVersion: 6 } })
   })
 
   it('backs up the legacy payload that actually failed, not an unrelated empty key', () => {
@@ -315,6 +331,74 @@ describe('save schema v5 migration from v4', () => {
     expect(adapter.reset()).toBe(true)
     expect(adapter.load(undefined, catalog)).toBeNull()
     expect(adapter.hasPendingUpgrade()).toBe(false)
+  })
+})
+
+describe('save schema v6 migration from v5 (W6-01 objective state)', () => {
+  it('raises a valid v5 save to v6 with fresh objective state', () => {
+    const v5 = asV5(defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS))
+    expect('objective' in v5).toBe(false)
+
+    const migrated = migrateSave(v5, undefined, catalog)
+
+    expect(migrated).toMatchObject({ ok: true, value: { schemaVersion: 6, objective: { heldTurns: 0, carrying: false } } })
+    /* Nothing else moved: v6 adds one field and rewrites none. */
+    if (!migrated.ok) throw new Error('expected the v5 payload to migrate')
+    expect(migrated.value.character).toEqual(v5.character)
+    expect(migrated.value.campaign).toEqual(v5.campaign)
+    expect(migrated.value.inventory).toEqual(v5.inventory)
+  })
+
+  it('rejects an invalid v5 source instead of rewriting it into a valid-looking v6', () => {
+    /* The property the whole chain rests on: each stage is validated by its own version's rules
+       *before* any field is added, so a broken payload fails rather than being laundered by the
+       migration into something the validator then accepts. */
+    const v5 = asV5(defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS))
+    const broken = { ...v5, campaign: { ...v5.campaign, xp: -1 } }
+
+    const migrated = migrateSave(broken, undefined, catalog)
+
+    expect(migrated.ok).toBe(false)
+    if (!migrated.ok) expect(migrated.error.code).toBe('shape')
+  })
+
+  it('reads a v5 payload left under its own key, so the key bump does not hide a save', () => {
+    /* Same guarantee W4-05 established for v4, now for v5: bumping the storage key must not start an
+       existing player at a fresh campaign. Both legacy keys are searched, newest first. */
+    const v5 = asV5(defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS))
+    const storage = createMemoryStorage({ 'eden.save.v5': JSON.stringify(v5) })
+    const adapter = createLocalStorageAdapter(storage, catalog)
+
+    expect(adapter.hasPendingUpgrade()).toBe(true)
+    const loaded = adapter.load(undefined, catalog)
+    expect(loaded).toMatchObject({ ok: true, value: { schemaVersion: 6, objective: { heldTurns: 0, carrying: false } } })
+
+    if (!loaded?.ok) throw new Error('expected the v5 payload to migrate')
+    expect(adapter.save(loaded.value)).toBe(true)
+    /* The live copy lands under the current key and the legacy payload is left intact. */
+    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY)!).schemaVersion).toBe(6)
+    expect(storage.getItem('eden.save.v5')).toBe(JSON.stringify(v5))
+  })
+
+  it('requires objective state to be inert outside an active mission', () => {
+    /*
+     * Why this is validated rather than trusted: `evaluateObjective` compares `heldTurns` against the
+     * mission's `holdTurns` and does not re-derive it from the board, so a hand-edited value is a free
+     * completion. `carrying` is the same for a delivery. Rejecting non-zero progress on a non-mission
+     * screen also stops one mission's progress from being inherited by the next.
+     */
+    const home = defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS)
+    expect(validateSave(home, catalog).ok).toBe(true)
+    expect(validateSave({ ...home, objective: { heldTurns: 3, carrying: false } }, catalog).ok).toBe(false)
+    expect(validateSave({ ...home, objective: { heldTurns: 0, carrying: true } }, catalog).ok).toBe(false)
+    /* Shape is checked too, so a missing or malformed block cannot reach the runtime. */
+    expect(validateSave({ ...home, objective: undefined }, catalog).ok).toBe(false)
+    expect(validateSave({ ...home, objective: { heldTurns: -1, carrying: false } }, catalog).ok).toBe(false)
+    expect(validateSave({ ...home, objective: { heldTurns: 1.5, carrying: false } }, catalog).ok).toBe(false)
+
+    /* On an active mission the same progress is legitimate. */
+    const active = activeSave()
+    expect(validateSave({ ...active, objective: { heldTurns: 3, carrying: true } }, catalog).ok).toBe(true)
   })
 })
 

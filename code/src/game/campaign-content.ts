@@ -14,6 +14,13 @@ import { isResourceId } from "./inventory";
 import { ITEM_EFFECT_KINDS, type ItemEffect, type ItemEffectDefinition } from "./consumables";
 import { dismantleCeiling, noProfitViolations, type ReturnTableDefinition } from "./dismantle";
 import {
+  validateObjective,
+  validateObjectiveGeometry,
+  type ObjectiveBounds,
+  type ObjectiveParams,
+  type ObjectiveType,
+} from "./objective";
+import {
   ContentValidationError,
   fetchContent,
   isInt,
@@ -37,7 +44,14 @@ export interface ZoneDefinition {
   description: string;
   unlocked: boolean;
 }
-export type ObjectiveType = "eliminate" | "secure";
+/**
+ * W6-01 — re-exported from `objective.ts`, which now owns the type and its four completion rules.
+ *
+ * Previously declared here as `'eliminate' | 'secure'`, with `checkMission` accepting `retrieve` and
+ * `escape` and rewriting them to `secure`. Keeping the alias means every existing importer keeps
+ * working while there is exactly one definition.
+ */
+export type { ObjectiveType } from "./objective";
 export interface MissionDefinition {
   id: string;
   zoneId: string;
@@ -45,6 +59,20 @@ export interface MissionDefinition {
   name: string;
   description: string;
   objective: ObjectiveType;
+  /**
+   * W6-01 — parameters validated against `objective`, absent only for `eliminate`.
+   *
+   * Parsed into the discriminated union at load, so nothing downstream has to re-check which fields
+   * belong to which objective type.
+   */
+  objectiveParams: ObjectiveParams;
+  /**
+   * Turn after which a timed objective fails. Only meaningful for `retrieve`/`escape`.
+   *
+   * Absent means no deadline: an `eliminate` mission is not on a clock, and a `secure` mission's own
+   * `holdTurns` is its clock.
+   */
+  turnLimit?: number;
   arenaId: string;
   difficulty: 0 | 1 | 2;
   rewardId: string;
@@ -313,13 +341,35 @@ function checkMission(
     value.description === undefined ? value.name : value.description;
   if (!isInt(order) || order < 1)
     issues.push({ path: `${path}.order`, message: ">=1" });
-  if (
-    value.objective !== "eliminate" &&
-    value.objective !== "secure" &&
-    value.objective !== "retrieve" &&
-    value.objective !== "escape"
-  )
-    issues.push({ path: `${path}.objective`, message: "eliminate | secure" });
+  /**
+   * W6-01 — the objective and its parameters are validated together, and `retrieve`/`escape` are no
+   * longer rewritten to `secure`.
+   *
+   * The old code accepted four values, silently collapsed two of them, and reported the other two in
+   * its error message — so a retrieval mission shipped as a cleanup mission with nothing anywhere
+   * saying so.
+   *
+   * Geometry is *shape*-checked here and *bounds*-checked in `validateCampaignCatalog`, where the
+   * arena is in hand: `missions.json` is validated before any arena is fetched, so this function
+   * cannot know the map size. An objective cell outside its arena is an unwinnable mission, which is
+   * why the bounds half is not optional — see `validateObjectiveGeometry`.
+   */
+  const objective = validateObjective(value.objective, value.objectiveParams, path);
+  if (!objective.ok) issues.push(...objective.issues);
+  /* A deadline is only meaningful where an objective can time out; accepting it elsewhere would
+     advertise a clock the runtime does not run. */
+  const timed =
+    objective.ok &&
+    (objective.value.kind === "retrieve" || objective.value.kind === "escape");
+  if (value.turnLimit !== undefined) {
+    if (!timed)
+      issues.push({
+        path: `${path}.turnLimit`,
+        message: "только для целей retrieve | escape",
+      });
+    else if (!isInt(value.turnLimit) || value.turnLimit < 1 || value.turnLimit > 60)
+      issues.push({ path: `${path}.turnLimit`, message: "целое 1..60" });
+  }
   if (!isInt(value.difficulty) || value.difficulty < 0 || value.difficulty > 2)
     issues.push({ path: `${path}.difficulty`, message: "0..2" });
   return issues.length === before
@@ -327,10 +377,8 @@ function checkMission(
         ...value,
         order,
         description,
-        objective:
-          value.objective === "retrieve" || value.objective === "escape"
-            ? "secure"
-            : value.objective,
+        objective: value.objective as ObjectiveType,
+        objectiveParams: (objective as { ok: true; value: ObjectiveParams }).value,
       } as unknown as MissionDefinition)
     : null;
 }
@@ -518,9 +566,18 @@ export function validateCampaignCatalog(
    * hand, and an omitted set means "cannot verify" rather than "reject" — the same convention
    * `itemIds`/`catalog.items` already uses.
    */
-  references: { equipmentIds?: ReadonlySet<string>; ammoIds?: ReadonlySet<string> } = {},
+  references: {
+    equipmentIds?: ReadonlySet<string>;
+    ammoIds?: ReadonlySet<string>;
+    /**
+     * W6-01 — arena dimensions by arena id, so objective geometry can be bounds-checked.
+     *
+     * Omitted means "cannot verify", matching the convention above.
+     */
+    arenaBounds?: ReadonlyMap<string, ObjectiveBounds>;
+  } = {},
 ): ContentResult<CampaignCatalog> {
-  const { equipmentIds, ammoIds } = references;
+  const { equipmentIds, ammoIds, arenaBounds } = references;
   const resolvedItemIds = itemIds ?? new Set(catalog.items?.map((item) => item.id) ?? []);
   const issues: ContentIssue[] = [];
   const zoneIds = new Set(catalog.zones.map((zone) => zone.id));
@@ -661,6 +718,26 @@ export function validateCampaignCatalog(
         path: `missions.${mission.id}.rewardId`,
         message: "ссылка на существующую награду",
       });
+    /**
+     * W6-01 — the bounds half of objective validation, which only this function can do.
+     *
+     * `checkMission` proved the parameters have the right *shape* for the objective type, but it ran
+     * before any arena was fetched and so could not know the map size. An exit or pickup cell outside
+     * its arena is an unwinnable mission that looks perfectly valid in `missions.json`; caught here it
+     * is a boot failure, and caught nowhere it is a player stuck on turn 40.
+     *
+     * `arenaBounds` is optional for the same reason `itemIds` is: a caller without arenas in hand
+     * cannot verify, and "cannot verify" must not mean "reject".
+     */
+    const bounds = arenaBounds?.get(mission.arenaId);
+    if (bounds)
+      issues.push(
+        ...validateObjectiveGeometry(
+          mission.objectiveParams,
+          bounds,
+          `missions.${mission.id}.objectiveParams`,
+        ),
+      );
   }
   for (const zone of catalog.zones) {
     const ordered = catalog.missions
