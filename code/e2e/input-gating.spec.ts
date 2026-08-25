@@ -115,9 +115,35 @@ test.describe("combat hotkeys are gated to an active encounter", () => {
   });
 
   test("E during an active encounter does end the turn", async ({ page }) => {
-    /* The control case. Without it, every assertion above could be satisfied by a listener that was
-       never attached — which would make this whole file vacuous. */
+    /*
+     * The control case. Without it, every assertion above could be satisfied by a listener that was
+     * never attached — which would make this whole file vacuous.
+     *
+     * Two claims are checked, and they are separated on purpose: the enemy phase is persisted
+     * *synchronously* when the turn ends, and the 300 ms timer then resolves it. Asserting both
+     * against one key press is a race, not a test — the intermediate state lives for 300 ms, so on a
+     * fast machine the timer can resolve it before the assertion reads storage, which is exactly how
+     * this failed on CI while passing locally. The transient half is therefore pinned by suppressing
+     * the timer, the same technique the enemy-phase gating test below uses, and the resolution is
+     * measured on a fresh page where the timer runs for real.
+     */
     const errors = collectConsoleErrors(page);
+    await clearSave(page);
+    await seedRawSave(page, buildSave(content, { screen: "mission" }).raw);
+    await gotoApp(page);
+    await expect(phaseLabel(page)).toHaveText("ВАШ ХОД");
+    /* Pinned: the transition is entered and cannot resolve out from under the assertion. */
+    await page.evaluate(() => {
+      window.setTimeout = (() => 0) as unknown as typeof window.setTimeout;
+    });
+
+    await page.keyboard.press("e");
+
+    await expect(phaseLabel(page)).toHaveText("ПРОТИВНИК");
+    await expect(combatLog(page)).toHaveText("Ход противника…");
+    expect((await readSave(page)).phase).toBe("enemy");
+
+    /* A fresh navigation restores the real `setTimeout`, so the resolution is observed as shipped. */
     await clearSave(page);
     await seedRawSave(page, buildSave(content, { screen: "mission" }).raw);
     await gotoApp(page);
@@ -125,16 +151,11 @@ test.describe("combat hotkeys are gated to an active encounter", () => {
 
     await page.keyboard.press("e");
 
-    /* The enemy phase is entered and its snapshot is persisted synchronously. */
-    await expect(phaseLabel(page)).toHaveText("ПРОТИВНИК");
-    await expect(combatLog(page)).toHaveText("Ход противника…");
-    expect((await readSave(page)).phase).toBe("enemy");
-
-    /* Then the 300 ms timer resolves it and the turn counter advances. */
+    /* The timer resolves the phase and the turn counter advances. Polled rather than read once: the
+       assertion is about the settled state, and when it settles is not part of the contract. */
     await expect(page.locator(".turn span")).toHaveText("ФАЗА / ХОД 2");
-    const resolved = await readSave(page);
-    expect(resolved.phase).toBe("player");
-    expect(resolved.turn).toBe(2);
+    await expect.poll(async () => (await readSave(page)).phase).toBe("player");
+    expect((await readSave(page)).turn).toBe(2);
     expect(errors).toEqual([]);
   });
 
