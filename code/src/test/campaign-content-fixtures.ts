@@ -13,15 +13,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   validateBaseUpgrades,
+  validateItemEffects,
   validateItems,
   validateMissions,
   validateRecipes,
+  validateReturnTables,
   validateRewards,
   validateZones,
   validateCampaignCatalog,
   type ItemDefinition,
+  type ItemEffectDefinition,
   type MissionDefinition,
   type RewardDefinition,
+  type ReturnTableDefinition,
   type ZoneDefinition,
 } from "../game/campaign-content";
 import {
@@ -31,6 +35,7 @@ import {
   type ArenaCatalog,
 } from "../game/content";
 import { parseProgression, type ProgressionCatalog } from "../game/progression";
+import type { BaseUpgradeDefinition, RecipeDefinition } from "../game/base";
 import {
   parseEquipmentCatalog,
   weaponById,
@@ -62,6 +67,14 @@ export interface ShippedContent {
   missions: MissionDefinition[];
   rewards: RewardDefinition[];
   items: ItemDefinition[];
+  /** W5-02 crafting catalog, exposed so a spec asserts labels from data rather than literals. */
+  recipes: RecipeDefinition[];
+  /** W5-01 node level catalog, exposed for the same reason. */
+  upgrades: BaseUpgradeDefinition[];
+  /** W5-03 quick-slot effects, so a spec reads the AP price and heal amount from content. */
+  itemEffects: ItemEffectDefinition[];
+  /** W5-04 dismantle returns, so a spec reads the expected payout from content. */
+  returnTables: ReturnTableDefinition[];
   equipment: EquipmentCatalog;
   arenas: ArenaCatalog;
   progression: ProgressionCatalog;
@@ -85,14 +98,22 @@ export function loadShippedContent(): ShippedContent {
   const rewards = unwrap(validateRewards(readShippedConfig("rewards.json")), "rewards");
   const items = unwrap(validateItems(readShippedConfig("items.json")), "items");
   const recipes = unwrap(validateRecipes(readShippedConfig("recipes.json")), "recipes");
-  unwrap(validateBaseUpgrades(readShippedConfig("base-upgrades.json")), "base-upgrades");
+  const upgrades = unwrap(validateBaseUpgrades(readShippedConfig("base-upgrades.json")), "base-upgrades");
+  const itemEffects = unwrap(validateItemEffects(readShippedConfig("item-effects.json")), "item-effects");
+  const returnTables = unwrap(validateReturnTables(readShippedConfig("return-tables.json")), "return-tables");
 
   const arenas = validateArenaCatalog(manifest, arenaList, new Set(missions.map((mission) => mission.arenaId)));
+  /* The same cross-file references the shell checks at boot, including the equipment/ammo id sets:
+     without them a fixture load would accept a catalog the running game rejects. */
   const validated = unwrap(
     validateCampaignCatalog(
-      { zones, missions, rewards, items, recipes },
+      { zones, missions, rewards, items, recipes, upgrades, itemEffects, returnTables },
       new Set(arenas.all.map((arena) => arena.id)),
       new Set(items.map((item) => item.id)),
+      {
+        equipmentIds: new Set([...equipment.weapons.map((entry) => entry.id), ...equipment.armor.map((entry) => entry.id)]),
+        ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
+      },
     ),
     "campaign catalog",
   );
@@ -106,6 +127,10 @@ export function loadShippedContent(): ShippedContent {
     missions: playable,
     rewards: validated.rewards,
     items,
+    recipes,
+    upgrades,
+    itemEffects,
+    returnTables,
     equipment,
     arenas,
     progression,

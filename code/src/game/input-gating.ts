@@ -8,12 +8,15 @@
  */
 import { ATTACKS, type BodyPart } from './combat'
 import type { CampaignScreen } from './campaign'
+import { QUICK_SLOT_COUNT } from './inventory'
 import type { BattlePhase } from './save'
 
 export type CombatShortcut =
   | { action: 'end-turn' }
   | { action: 'overwatch' }
   | { action: 'select-body-part'; part: BodyPart; index: number }
+  /** W5-03: применить расходник из быстрого слота (Shift+1…Shift+4). */
+  | { action: 'use-quick-slot'; index: number }
 
 /** Порядок частей тела для клавиш 1–6; берётся из боевого каталога, а не дублируется. */
 export const SHORTCUT_BODY_PARTS = Object.keys(ATTACKS) as BodyPart[]
@@ -35,6 +38,32 @@ export interface ShortcutEventLike {
   ctrlKey?: boolean
   metaKey?: boolean
   altKey?: boolean
+  /**
+   * W5-03: Shift разделяет «выбрать часть тела» и «применить расходник».
+   *
+   * Обязательно `shiftKey`, а не свободная цифра: клавиши 1–6 уже заняты частями тела, и отдать их
+   * расходникам значило бы сломать прицеливание ради быстрых слотов. `event.key` при Shift+1 в
+   * разных раскладках приходит как `!`, `1` или национальный символ, поэтому распознавание идёт по
+   * `code` (`Digit1`), а `key` остаётся резервным вариантом для событий без `code` — таких, какие
+   * создают node-тесты.
+   */
+  shiftKey?: boolean
+  /** Физическая клавиша (`Digit1`…`Digit4`); независима от раскладки и от Shift. */
+  code?: string
+}
+
+/**
+ * Индекс быстрого слота для нажатия с Shift, или `null`.
+ *
+ * `code` предпочтительнее `key`, потому что при зажатом Shift браузер отдаёт в `key` символ верхнего
+ * регистра (`!` для Shift+1 на US-раскладке), и сопоставление по `key` работало бы только на одной
+ * раскладке.
+ */
+const quickSlotIndexOf = (event: ShortcutEventLike): number | null => {
+  const fromCode = /^Digit([1-9])$/.exec(event.code ?? '')
+  const digit = fromCode ? Number(fromCode[1]) : Number(event.key)
+  const index = digit - 1
+  return Number.isInteger(index) && index >= 0 && index < QUICK_SLOT_COUNT ? index : null
 }
 
 /**
@@ -49,6 +78,11 @@ export function resolveCombatShortcut(
   if (!acceptsCombatInput(screen, phase)) return null
   if (event.ctrlKey || event.metaKey || event.altKey) return null
   if (isTextEntryTarget(event.target)) return null
+  /* Проверяется до цифр без Shift: Shift+1 не должен одновременно менять часть тела. */
+  if (event.shiftKey) {
+    const slot = quickSlotIndexOf(event)
+    return slot === null ? null : { action: 'use-quick-slot', index: slot }
+  }
   const key = event.key.toLowerCase()
   if (key === 'e') return { action: 'end-turn' }
   if (key === 'o') return { action: 'overwatch' }

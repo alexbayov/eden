@@ -140,13 +140,17 @@ describe("M3-C mobile layout for 390x844", () => {
        only 400 px tall — gets no sticky bar and keeps its CTA below the fold. */
     const phone = mediaBlock("(max-width: 760px)");
     expect(phone).toMatch(/\.combat\s+\.action-tray\s+\.fire\s*\{[^}]*position:\s*fixed/);
-    /* Mission select, reward and return share one fixed-bar rule group. */
+    /* Base, mission select, reward and return share one fixed-bar rule group. The base entry was
+       added with the W5 panel: the stash overview, node ladder and craft/upgrade/dismantle catalogs
+       pushed «ВЫБРАТЬ МИССИЮ» past a 640px fold, which `e2e/viewport-geometry.spec.ts` measures. */
     expect(phone).toContain(".campaign.mission-select .mission-card:first-child > button");
     expect(phone).toContain(".campaign.reward .campaign-grid > .card:last-child .actions > button:first-child");
     expect(phone).toContain(".campaign.return .campaign-grid > .card:last-child .actions > button:first-child");
-    expect(phone).toMatch(/\.campaign\.return[^{]*\{[^}]*position:\s*fixed/);
-    /* The tray reserves room for the bar, so the fixed CTA cannot cover the last control. */
+    expect(phone).toContain(".campaign.home .home-panel .primary-actions > button:last-child");
+    expect(phone).toMatch(/\.campaign\.home[^{]*\{[^}]*position:\s*fixed/);
+    /* The tray and the campaign grid each reserve room, so a pinned CTA cannot cover the last row. */
     expect(phone).toMatch(/\.combat\s+\.action-tray\s*\{[^}]*padding-bottom/);
+    expect(phone).toMatch(/\.campaign\s+\.campaign-grid\s*\{[^}]*padding-bottom/);
     /* Safe-area inset is respected rather than a bare 12px, which would sit under the home bar. */
     expect(phone).toContain("env(safe-area-inset-bottom)");
   });

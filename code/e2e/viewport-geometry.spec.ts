@@ -43,8 +43,14 @@ import { buildSave, loadShippedContent, orderedEncounters } from "../src/test/ca
  *     primary action to a `position: fixed` bottom bar. Both reward and return CTAs are additionally
  *     *operated* there, so "within the fold" is not merely a rectangle claim.
  *   • On the three wider viewports (768x1024, 1280x720, 800x400) only the base-screen CTA clears the
- *     fold. See `documents the measured CTA fold position` for the numbers, the root cause and why
- *     this is recorded as a finding rather than asserted away.
+ *     fold, and at 800x400 not even that. See `documents the measured CTA fold position` for the
+ *     numbers, the root cause and why this is recorded as a finding rather than asserted away.
+ *
+ * W5 UPDATE — the base screen's CTA is now pinned at phone widths too. The W5 base panel (stash
+ * overview, node ladder, craft/upgrade/dismantle catalogs) pushed «ВЫБРАТЬ МИССИЮ» from y≈515 to
+ * y≈745, so at 360x640 it left the fold; `.campaign.home .home-panel .primary-actions` now joins the
+ * `max-width: 760px` fixed-bar group. The wide-viewport baseline moved in the other direction for two
+ * cases and is updated there.
  *
  * SCOPE LIMIT, stated because it is easy to overclaim: these are headless-Chromium measurements at a
  * CSS viewport size. They are not device tests. Device pixel ratio, browser chrome, on-screen
@@ -182,7 +188,9 @@ test.describe("W1-05 primary CTA reachability", () => {
      * W1-05 acceptance criterion 3 asks that «главный CTA каждого экрана видим и кликабелен без
      * прокрутки на 360×640». At 360x640 and 390x844 that now holds for all five screens: the
      * `@media (max-width: 760px)` block promotes each screen's primary action to a fixed bottom bar,
-     * so the CTA sits at y=584 (360x640) / y=788 (390x844) regardless of how tall the page is.
+     * so the CTA sits at y=584 (360x640) / y=788 (390x844) regardless of how tall the page is — and
+     * the pages are now very tall indeed (the base screen measures ~4000px at 360x640 with the W5
+     * catalogs), which is exactly why the base CTA had to join the bar rather than stay in flow.
      *
      * Asserted per case rather than as one snapshot object, so a failure names the screen that broke
      * instead of printing a fifteen-entry diff. `withinFold` is a rectangle test against the
@@ -216,7 +224,8 @@ test.describe("W1-05 primary CTA reachability", () => {
      * The fixed bottom bar is keyed on `max-width: 760px`, so 768x1024, 1280x720 and 800x400 keep the
      * CTA in normal flow. Below 1100px the shell stacks canvas, tactical panel and HUD into one
      * column, and the campaign screens stack their three cards, which pushes every primary action
-     * except the base screen's far past the fold (reward/return: y≈1756 at 768x1024).
+     * except the base screen's past the fold. Measured at 768x1024: mission-select y≈2749, reward
+     * y≈1053, return y≈1168, against a 1024px fold.
      *
      * 800x400 is the sharpest case and is asserted explicitly rather than folded into a generic
      * expectation, because two different things are true of it at once: it is 800 CSS px wide, so it
@@ -254,13 +263,20 @@ test.describe("W1-05 primary CTA reachability", () => {
     }
 
     /* Measured, on the current build. Only the base screen clears the fold, and only where the
-       viewport is tall enough to hold the header plus the home panel above the button. */
+       viewport is tall enough to hold the header plus the home panel above the button.
+
+       W5 UPDATE — `768x1024/reward` and `768x1024/return` were `true` before W5 and are now `false`.
+       Nothing regressed in the fixed-bar rules: at 768px wide there is no bar to begin with, and both
+       screens simply grew taller than 1024px. Reward gained the level/XP readout, and return gained
+       the backpack-loss preview (`W5-05`), which is a multi-line list above the CTA by design. The
+       table is updated to the measurement rather than the layout being changed to fit it, because
+       W1-05's baseline is a record of where the CTA actually sits. */
     expect(foldByCase).toEqual({
       "768x1024/home": true,
       "768x1024/mission-select": false,
       "768x1024/combat": false,
-       "768x1024/reward": true,
-       "768x1024/return": true,
+      "768x1024/reward": false,
+      "768x1024/return": false,
       "1280x720/home": true,
       "1280x720/mission-select": false,
       "1280x720/combat": false,

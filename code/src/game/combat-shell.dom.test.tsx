@@ -31,9 +31,7 @@ import {
   buildSave,
   loadShippedContent,
   orderedEncounters,
-  readShippedConfig,
 } from "../test/campaign-save-fixtures";
-import { validateBaseUpgrades, validateRecipes } from "./campaign-content";
 import { levelForXp, skillPointsGranted } from "./progression";
 
 const content = loadShippedContent();
@@ -41,16 +39,11 @@ const encounters = orderedEncounters(content);
 const [first] = encounters;
 
 /**
- * Recipes and base upgrades are the two catalogs `loadShippedContent` does not expose, and the
- * return-screen regression below needs their *button labels*. Read through the runtime validators
- * rather than hand-written, so a renamed recipe cannot leave the assertion matching nothing.
+ * Recipes and base upgrades come from `loadShippedContent`, which validates them with the runtime
+ * validators, so a renamed recipe cannot leave the assertions below matching nothing.
  */
-const unwrapContent = <T,>(result: { ok: true; value: T } | { ok: false; error: Error }, label: string): T => {
-  if (!result.ok) throw new Error(`shipped ${label} is invalid: ${result.error.message}`);
-  return result.value;
-};
-const shippedRecipes = unwrapContent(validateRecipes(readShippedConfig("recipes.json")), "recipes");
-const shippedUpgrades = unwrapContent(validateBaseUpgrades(readShippedConfig("base-upgrades.json")), "base-upgrades");
+const shippedRecipes = content.recipes;
+const shippedUpgrades = content.upgrades;
 
 describe("W1-02 combat controls", () => {
   beforeEach(() => {
@@ -215,8 +208,19 @@ describe("W4-02 death penalty on the return screen", () => {
     const stated = Number(notice.getAttribute("data-penalty"));
     expect(stated).toBeGreaterThan(0);
     expect(notice.textContent).toContain(`−${stated} XP`);
-    /* The message names what is *not* taken, so the player is not left guessing. */
-    expect(notice.textContent).toContain("Ресурсы, stash и экипировка не затронуты");
+    /*
+     * The message names what is *not* taken, so the player is not left guessing.
+     *
+     * Since W5-05 that list no longer includes «ресурсы»: a non-free defeat does take part of the
+     * *carried* backpack, resources included. Claiming otherwise here would be the test asserting a
+     * promise the code has stopped keeping. What survives unconditionally is the base — the stash and
+     * worn equipment — and that is what both notices state.
+     */
+    expect(notice.textContent).toContain("Stash и экипировка не затронуты");
+    expect(notice.textContent).not.toContain("Ресурсы, stash и экипировка не затронуты");
+    expect(container.querySelector("p.backpack-loss")!.textContent).toContain(
+      "Stash, надетая экипировка и её durability не затрагиваются",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "ВЕРНУТЬСЯ НА БАЗУ" }));
 
@@ -281,13 +285,16 @@ const BASE_ONLY_ACTIONS: ReadonlyArray<{ label: string; name: RegExp | string }>
   { label: "ремонт", name: /^РЕМОНТ:/ },
   { label: "медотсек", name: "МЕДОТСЕК — БИНТ ИЗ STASH" },
   { label: "выбор миссии", name: "ВЫБРАТЬ МИССИЮ" },
+  /* Since W5-01/W5-02 both controls carry an `aria-label` that states the effect and the price, so
+     the accessible name starts with the catalog name followed by a full stop, not by the raw label
+     text. Matched on that prefix, which is what a screen-reader user actually hears. */
   ...shippedRecipes.map((recipe) => ({
     label: `крафт «${recipe.id}»`,
-    name: new RegExp(`^${escapeForRegExp(recipe.name)} — `),
+    name: new RegExp(`^${escapeForRegExp(recipe.name)}\\. `),
   })),
   ...shippedUpgrades.map((entry) => ({
     label: `улучшение «${entry.id}»`,
-    name: new RegExp(`^${escapeForRegExp(entry.name)}: `),
+    name: new RegExp(`^${escapeForRegExp(entry.name)}\\. `),
   })),
 ];
 const equipmentStateSections = (container: Element) => container.querySelectorAll("section.equipment-state");

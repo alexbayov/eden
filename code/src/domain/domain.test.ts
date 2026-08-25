@@ -6,7 +6,7 @@ import { awardReward } from './rewards'
 
 const vest = (): EquipmentInstance => ({ instanceId: 'vest-1', itemId: 'patched-vest', slot: 'torso', durability: 60, maxDurability: 100 })
 const stocked = (metal = 10) => addItem(addResource(createInventory(20, [vest()]), 'metal', metal, 1, 'stash').inventory, 'field-bandage', 2, 1, 'stash').inventory
-const upgrades: BaseUpgradeDefinition[] = [{ id: 'stash-2', name: 'Склад L2', node: 'stash', targetLevel: 2, cost: { metal: 5 }, capacityBonus: 10, description: 'Вместимость рюкзака +10' }]
+const upgrades: BaseUpgradeDefinition[] = [{ id: 'stash-2', name: 'Склад L2', node: 'stash', targetLevel: 2, cost: { metal: 5 }, effect: { kind: 'stash-capacity', capacityBonus: 10 }, description: 'Вместимость рюкзака +10' }]
 const recipes: RecipeDefinition[] = [{ id: 'bandage', name: 'Бинт', node: 'workbench', nodeLevel: 1, cost: { cloth: 1 }, output: { itemId: 'field-bandage', quantity: 1 }, description: '1 ткань → 1 бинт' }]
 
 describe('M2 pure domain', () => {

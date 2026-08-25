@@ -148,9 +148,13 @@ describe("W1-02 base screen", () => {
     expect(screen.getByRole("heading", { name: "Снаряжение вылазки" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "ВЫБРАТЬ МИССИЮ" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "МЕДОТСЕК — БИНТ ИЗ STASH" })).toBeTruthy();
-    /* Hero HP and stash contents come from the save, not from placeholder text. */
+    /* Hero HP and stash contents come from the save, not from placeholder text. The stash row is
+       addressed by its resource id rather than by the Russian label, so a relabelled resource does
+       not silently make this assertion vacuous (W5-02 stash overview). */
     expect(container.textContent).toContain("24/24");
-    expect(container.textContent).toContain("металл 4");
+    const metal = container.querySelector('.stash-overview [data-resource="metal"]')!;
+    expect(metal.getAttribute("data-quantity")).toBe("4");
+    expect(metal.textContent).toContain("4");
     /* The base screen is not the combat shell. */
     expect(shellElement(container).classList.contains("combat")).toBe(false);
   });

@@ -135,7 +135,18 @@ export interface PersistedSave {
   phase: "player" | "enemy" | "victory" | "defeat";
   turn: number;
   rngState: number;
-  units: Array<{ id: string; hp: number; maxHp: number; ap: number; team: string; x: number; y: number }>;
+  units: Array<{
+    id: string;
+    hp: number;
+    maxHp: number;
+    ap: number;
+    team: string;
+    x: number;
+    y: number;
+    /** Read by the W5-03 specs: a quick-slot use must move reserve ammo/durability, not the magazine. */
+    weaponState?: { weaponInstanceId: string; magazine: number; reserveAmmo: number; durability: number };
+    armor?: { armorInstanceId: string; durability: number };
+  }>;
   campaign: {
     screen: string;
     activeMissionId: string | null;
@@ -153,8 +164,35 @@ export interface PersistedSave {
   inventory: {
     stash: { resources: Array<{ id: string; quantity: number }>; items: Array<{ id: string; quantity: number }> };
     backpack: { resources: Array<{ id: string; quantity: number }>; items: Array<{ id: string; quantity: number }> };
+    /** W5-03: a spent stack must clear its slot; W5-05: a taken stack must clear it too. */
+    quickSlots: Array<string | null>;
+    equipment: Array<{ instanceId: string; itemId: string; durability: number }>;
   };
 }
+
+/** Units of `id` in one pool, or 0 when the stack is absent. `quantity` is never asserted directly. */
+export const stackQuantity = (
+  stacks: Array<{ id: string; quantity: number }>,
+  id: string,
+): number => stacks.find((stack) => stack.id === id)?.quantity ?? 0;
+
+/** The hero unit as persisted. Fails the test when the save has none. */
+export const persistedHero = (save: PersistedSave) => {
+  const hero = save.units.find((unit) => unit.id === "hero");
+  expect(hero, "expected a hero unit in the persisted save").toBeDefined();
+  return hero!;
+};
+
+/** The quick-slot button for a 1-based slot number. */
+export const quickSlotButton = (page: Page, slotNumber: number): Locator =>
+  page.locator(`button[data-quick-slot="${slotNumber}"]`);
+
+/** The dismantle control for an instance or stacked item id. */
+export const dismantleButton = (page: Page, id: string): Locator =>
+  page.locator(`button[data-dismantle="${id}"]`);
+
+/** The W5-05 backpack-loss block on the return screen. */
+export const lossNotice = (page: Page): Locator => page.locator("p.backpack-loss");
 
 /** Reads and parses the persisted save. Fails the test when nothing is stored. */
 export async function readSave(page: Page): Promise<PersistedSave> {

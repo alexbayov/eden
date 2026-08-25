@@ -16,6 +16,39 @@ export const applyEnemyArchetype = (u: Unit, c: EquipmentCatalog): Unit => { con
 
 const equipmentInstanceFor = (inventory: Inventory, instanceId: string | undefined, itemId: string | undefined, slots: readonly string[]) => inventory.equipment.find((entry) => (instanceId && entry.instanceId === instanceId) || (itemId && entry.itemId === itemId && slots.includes(entry.slot)))
 
+/**
+ * W5-04 — drops every unit reference to equipment instances that no longer exist in the inventory.
+ *
+ * Needed because `syncEquipmentInstances` only copies state in one direction: from the unit onto a
+ * *matching* instance. It has no opinion about a unit pointing at an instance that has been
+ * destroyed, so after a dismantle the hero would still carry a `weaponState`/`armor` whose
+ * `instanceId` resolves to nothing — and the save validator rejects exactly that
+ * (`$.units[n].armor.armorInstanceId — ссылка на inventory equipment instance`). Without this the
+ * dismantle would either be refused by the save layer or, worse, persist a save that the *next*
+ * boot cannot load.
+ *
+ * It is a separate function from `syncEquipmentInstances` rather than a branch inside it because the
+ * two run at different moments and must not be confused: sync runs on **every** persist and would
+ * silently strip gear during any intermediate state, while unlinking is the deliberate consequence
+ * of one destructive action.
+ *
+ * Only the player's units are touched: enemy gear is generated from archetypes and has no inventory
+ * instance to lose.
+ */
+export function unlinkDestroyedEquipment(inventory: Inventory, units: readonly Unit[]): Unit[] {
+  const live = new Set(inventory.equipment.map((entry) => entry.instanceId))
+  return units.map((unit) => {
+    if (unit.team !== 'player') return unit
+    const dropWeapon = unit.weaponState !== undefined && !live.has(unit.weaponState.weaponInstanceId)
+    const dropArmor = unit.armor?.armorInstanceId !== undefined && !live.has(unit.armor.armorInstanceId)
+    if (!dropWeapon && !dropArmor) return unit
+    const next = { ...unit }
+    if (dropWeapon) delete next.weaponState
+    if (dropArmor) delete next.armor
+    return next
+  })
+}
+
 export function syncEquipmentInstances(inventory: Inventory, units: readonly Unit[]): Inventory {
   const weapons = new Map<string, WeaponState>()
   const armor = new Map<string, ArmorState>()

@@ -126,7 +126,7 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
     ])
     const arenas = await loadArenaCatalog(manifest, new Set(missions.map((mission) => mission.arenaId)), equipment)
     const validated = validateCampaignCatalog(
-      { zones, missions, rewards, items, recipes },
+      { zones, missions, rewards, items, recipes, upgrades },
       new Set(arenas.all.map((arena) => arena.id)),
       new Set(items.map((item) => item.id)),
     )

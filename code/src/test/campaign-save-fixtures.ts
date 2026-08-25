@@ -27,7 +27,7 @@ import {
 } from "../game/combat";
 import type { ArenaConfig } from "../game/content";
 import { hydrateArenaUnits, syncEquipmentInstances } from "../game/equipment-content";
-import { createInventory } from "../game/inventory";
+import { assignQuickSlot, createInventory } from "../game/inventory";
 import { nextRandom } from "../game/rng";
 import type { CampaignState, MissionProgress, MissionStatus } from "../game/campaign";
 import { characterForXp } from "../game/progression";
@@ -88,6 +88,19 @@ export interface SaveFixtureOptions {
    */
   backpackMetal?: number;
   backpackItems?: ReadonlyArray<{ id: string; quantity: number }>;
+  /**
+   * Quick-slot assignments by slot index, for the W5-03 in-combat consumable specs.
+   *
+   * Applied through `assignQuickSlot` rather than written into the array directly, so a fixture obeys
+   * the same two rules the game does — the item must be carried in the *backpack*, and one item
+   * cannot occupy two slots — and `validateSave` rejects the fixture rather than the spec discovering
+   * an impossible state later. Pair with `backpackItems`.
+   */
+  quickSlots?: Readonly<Record<number, string>>;
+  /** Hero weapon durability, so a field repair has something to restore. */
+  heroWeaponDurability?: number;
+  /** Stash items, so the W5-04 dismantle specs have a stacked candidate to act on. */
+  stashItems?: ReadonlyArray<{ id: string; quantity: number }>;
 }
 
 export interface SaveFixture {
@@ -208,10 +221,14 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
 
   const units = templateUnits(arena, content, seed.inventory).map((unit) => {
     if (unit.id === "hero") {
-      const weaponState =
+      const withAmmo =
         options.heroAmmo && unit.weaponState
           ? { ...unit.weaponState, magazine: options.heroAmmo.magazine, reserveAmmo: options.heroAmmo.reserveAmmo }
           : unit.weaponState;
+      const weaponState =
+        options.heroWeaponDurability !== undefined && withAmmo
+          ? { ...withAmmo, durability: options.heroWeaponDurability }
+          : withAmmo;
       return {
         ...unit,
         ...(options.heroAt ?? {}),
@@ -251,12 +268,17 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     if (!definition) throw new Error(`unknown item id in fixture backpack: ${entry.id}`);
     return { id: definition.id, quantity: entry.quantity, weight: definition.weight };
   });
-  const inventory = syncEquipmentInstances(
+  const packed = syncEquipmentInstances(
     {
       ...seed.inventory,
       stash: {
         ...seed.inventory.stash,
         resources: stashMetal > 0 ? [{ id: "metal" as const, quantity: stashMetal, weight: 1 }] : [],
+        items: (options.stashItems ?? []).map((entry) => {
+          const definition = content.items.find((item) => item.id === entry.id);
+          if (!definition) throw new Error(`unknown item id in fixture stash: ${entry.id}`);
+          return { id: definition.id, quantity: entry.quantity, weight: definition.weight };
+        }),
       },
       backpack: {
         ...seed.inventory.backpack,
@@ -266,6 +288,15 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     },
     units,
   );
+  /* Through the real rule, so an impossible assignment fails here with its own reason rather than
+     producing a save the validator rejects for a less obvious one. */
+  let inventory = packed;
+  for (const [index, itemId] of Object.entries(options.quickSlots ?? {})) {
+    const assigned = assignQuickSlot(inventory, Number(index), itemId);
+    if (!assigned.ok)
+      throw new Error(`fixture quick slot ${index} cannot hold ${itemId}: ${assigned.reason}`);
+    inventory = assigned.inventory;
+  }
 
   const save: SaveData = {
     schemaVersion: SAVE_SCHEMA_VERSION,

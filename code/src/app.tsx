@@ -17,8 +17,10 @@ import {
   repairGear,
   treatHero,
   type BaseState,
+  type BaseUpgradeDefinition,
   type RecipeDefinition,
 } from "./game/base";
+import { buildBasePanel } from "./game/base-view";
 import {
   canRetreatFromMission,
   missionVictory,
@@ -38,14 +40,18 @@ import {
 } from "./game/progression";
 import {
   loadBaseUpgrades,
+  loadItemEffects,
   loadItems,
   loadMissions,
   loadRecipes,
+  loadReturnTables,
   loadRewards,
   loadZones,
   type ItemDefinition,
+  type ItemEffectDefinition,
   type MissionDefinition,
   type RewardDefinition,
+  type ReturnTableDefinition,
   validateCampaignCatalog,
 } from "./game/campaign-content";
 import { awardRewardTransition } from "./game/rewards";
@@ -53,7 +59,8 @@ import {
   assignQuickSlot,
   depositBackpack,
   equipmentDurabilityPercent,
-  resourceQuantity,
+  freeCapacity,
+  RESOURCE_LABELS,
   totalWeight,
   transferItem,
   transferResource,
@@ -96,8 +103,15 @@ import {
 import {
   loadEquipmentCatalog,
   syncEquipmentInstances,
+  unlinkDestroyedEquipment,
   type EquipmentCatalog,
 } from "./game/equipment-content";
+import { useQuickSlot } from "./game/quick-slot";
+import { buildQuickSlotBar, quickSlotShortcutLabel } from "./game/quick-slot-view";
+import { dismantleEquipment, dismantleItem, linkedEquipmentInstanceIds } from "./game/dismantle";
+import { buildDismantlePanel } from "./game/dismantle-view";
+import { PROPOSED_BACKPACK_LOSS_POLICY } from "./game/death-loss";
+import { buildDeathLossView } from "./game/death-loss-view";
 import { createEncounterUnits } from "./game/encounter";
 import { campaignCatalogFor, campaignMissionsOf } from "./game/campaign-catalog";
 import {
@@ -116,8 +130,12 @@ interface Catalog {
   rewards: RewardDefinition[];
   arenas: ArenaCatalog;
   recipes: RecipeDefinition[];
-  upgrades: Awaited<ReturnType<typeof loadBaseUpgrades>>;
+  upgrades: BaseUpgradeDefinition[];
   items: ItemDefinition[];
+  /** W5-03 quick-slot effects, validated at boot against `items` and the equipment catalog. */
+  itemEffects: ItemEffectDefinition[];
+  /** W5-04 dismantle returns, validated at boot against `items`, `equipment` and `recipes`. */
+  returnTables: ReturnTableDefinition[];
   equipment: EquipmentCatalog;
   progression: ProgressionCatalog;
 }
@@ -221,6 +239,14 @@ export function App() {
   const [selectedBackpackItem, setSelectedBackpackItem] = useState<
     string | null
   >(null);
+  /**
+   * W5-04 — the entry the player has been asked to confirm before an irreversible dismantle.
+   *
+   * Shell state rather than `window.confirm`: a native dialog cannot be asserted by the DOM tests,
+   * cannot be reached by a screen reader in the same flow as the button, and would block the render
+   * thread. Holding the pending id here makes the two-press confirmation visible in the markup.
+   */
+  const [confirmingDismantle, setConfirmingDismantle] = useState<string | null>(null);
   const [movesExpanded, setMovesExpanded] = useState(false);
   const disclosureRef = useRef<HTMLButtonElement>(null);
   const [viewportWidth, setViewportWidth] = useState(
@@ -246,6 +272,55 @@ export function App() {
   const inventory = save?.inventory;
   const base = save?.base;
   const hero = units.find((unit) => unit.id === "hero");
+  /**
+   * W5-01/W5-02 — the whole base panel as data: node ladders, upgrade options, recipe options and
+   * the stash overview, each carrying its own availability and refusal reason. Computed by
+   * `buildBasePanel` from the same domain predicates the transitions use, so the shell renders
+   * strings and never decides whether an action is legal.
+   */
+  const basePanel = useMemo(
+    () =>
+      catalog && inventory && base
+        ? buildBasePanel({
+            base,
+            inventory,
+            upgrades: catalog.upgrades,
+            recipes: catalog.recipes,
+            labelFor: (itemId) => itemLabel(itemId, catalog),
+            carriedWeight: totalWeight(inventory),
+          })
+        : null,
+    [base, catalog, inventory],
+  );
+  /**
+   * W5-03 — the four quick slots as data, priced and gated by the same `quickSlotBlocker` the
+   * transition checks. The bar renders on the combat screen; the model is built here so the keyboard
+   * handler and the buttons read one source.
+   */
+  const quickSlotBar = useMemo(
+    () =>
+      catalog && inventory
+        ? buildQuickSlotBar({ hero, inventory, effects: catalog.itemEffects, phase })
+        : null,
+    [catalog, hero, inventory, phase],
+  );
+  /**
+   * W5-04 — every dismantle candidate with its exact return, computed from the shipped table.
+   * `units` is passed so worn gear is marked rather than silently destroyed.
+   */
+  const dismantlePanel = useMemo(
+    () =>
+      catalog && inventory
+        ? buildDismantlePanel({
+            inventory,
+            returnTable: catalog.returnTables,
+            units,
+            labelFor: (itemId) => itemLabel(itemId, catalog),
+            confirmingId: confirmingDismantle,
+          })
+        : null,
+    [catalog, confirmingDismantle, inventory, units],
+  );
   const activeMission = catalog ? catalog.missions.find((entry) => entry.id === (campaign.activeMissionId ?? campaign.mission.id)) ?? catalog.missions[0] : null;
   const activeReward = catalog && activeMission ? catalog.rewards.find((entry) => entry.id === activeMission.rewardId) ?? null : null;
   /**
@@ -253,6 +328,27 @@ export function App() {
    * applied when they do. Computed by `deathPenalty` and never re-derived here (W4-02 criterion 4).
    */
   const pendingPenalty = campaign.screen === "return" ? deathPenalty(campaign, catalog?.progression.curve) : null;
+  /**
+   * W5-05 — the loot half of the same return, previewed with the *same call* that will be committed.
+   *
+   * `buildDeathLossView` runs the pure `applyBackpackDeathLoss` once and carries the resulting
+   * inventory, so `returnHome` commits exactly the list this screen displayed instead of recomputing
+   * it (criterion 4). The policy is `PROPOSED_BACKPACK_LOSS_POLICY` and is rendered as an explicit
+   * proposal: decision D-01 is open, so the number is labelled rather than presented as balance.
+   */
+  const pendingLoss = useMemo(
+    () =>
+      campaign.screen === "return" && inventory && catalog
+        ? buildDeathLossView({
+            inventory,
+            policy: PROPOSED_BACKPACK_LOSS_POLICY,
+            reason: campaign.returnReason,
+            firstDeathReturnUsed: campaign.firstDeathReturnUsed,
+            labelFor: (itemId) => itemLabel(itemId, catalog),
+          })
+        : null,
+    [campaign.firstDeathReturnUsed, campaign.returnReason, campaign.screen, catalog, inventory],
+  );
   const persist = (
     nextUnits: Unit[],
     nextPhase: Phase = phase,
@@ -567,6 +663,75 @@ export function App() {
       );
     }
   }
+  /**
+   * W5-03 — applies the consumable in `index` during combat.
+   *
+   * One `persist` for the whole transition: the hero's HP/AP/weapon state and the inventory come out
+   * of a single `useQuickSlot` result, so the save can never hold a healed hero who still carries the
+   * bandage, or a spent bandage with no healing. Every refusal happens before anything is consumed,
+   * and the message is the same sentence the slot's own label states.
+   */
+  function useSlot(index: number) {
+    if (!catalog || !inventory || !base || !save || campaign.screen !== "mission") return;
+    const used = useQuickSlot({ hero, inventory, effects: catalog.itemEffects, phase }, units, index);
+    if (!used.ok) {
+      const option = quickSlotBar?.options[index];
+      return setLog(option?.reason ?? "Быстрый слот сейчас недоступен.");
+    }
+    const { value } = used;
+    if (!persist(value.units, phase, campaign, value.inventory, base, save.turn, save.rngState)) return;
+    setLog(
+      `${itemLabel(value.itemId, catalog)}: ${value.applied}, −${value.apCost} ОЧ.${
+        value.slotCleared ? ` Слот ${index + 1} освободился.` : ` Осталось: ${value.remaining}.`
+      }`,
+    );
+  }
+  /**
+   * W5-04 — destroys one dismantle candidate and pays its table into the stash.
+   *
+   * Every destruction takes two presses: the first arms `confirmingDismantle` and changes nothing,
+   * the second passes `confirmed` to the domain. The confirmation is an argument to the domain
+   * function, not an assumption, so a code path that forgot to ask is refused rather than silently
+   * destroying something.
+   *
+   * Gear the hero is actually using is refused outright — the domain decides this, and the panel
+   * renders it as unavailable. Dismantling it would be unrecoverable: the arena templates hardcode
+   * the loadout, so mission start would rebuild a reference to an instance that no longer exists and
+   * `validateSave` would reject every subsequent save. See the note in `dismantle.ts`.
+   *
+   * `unlinkDestroyedEquipment` still runs on the spare-gear path. `syncEquipmentInstances` only
+   * copies unit state *onto* a matching instance and has no opinion about a unit pointing at an
+   * instance that no longer exists, which the save validator rejects; dropping the reference here
+   * keeps the dismantle persistable.
+   */
+  function dismantle(id: string) {
+    if (!catalog || !inventory || !base || !dismantlePanel) return;
+    const option = dismantlePanel.options.find((entry) => entry.id === id);
+    if (!option || option.disabled)
+      return setLog(option?.reason ?? "Этот предмет нельзя разобрать.");
+    if (option.requiresConfirmation) {
+      setConfirmingDismantle(id);
+      return setLog(
+        `${option.label}: разборка необратима и вернёт ${option.returnsLabel}. Нажмите ещё раз для подтверждения.`,
+      );
+    }
+    if (option.kind === "item") {
+      const result = dismantleItem(inventory, option.itemId, catalog.returnTables);
+      if (!result.ok) return setLog(option.reason || "Разборка недоступна.");
+      setConfirmingDismantle(null);
+      if (!persist(units, "player", campaign, result.value.inventory, base)) return;
+      return setLog(`${option.label} разобран: в stash ${option.returnsLabel}.`);
+    }
+    const result = dismantleEquipment(inventory, id, catalog.returnTables, {
+      linkedInstanceIds: linkedEquipmentInstanceIds(units),
+      confirmed: option.confirming,
+    });
+    if (!result.ok) return setLog(option.reason || "Разборка недоступна.");
+    setConfirmingDismantle(null);
+    const nextUnits = unlinkDestroyedEquipment(result.value.inventory, units);
+    if (!persist(nextUnits, "player", campaign, result.value.inventory, base)) return;
+    setLog(`${option.label} разобран безвозвратно: в stash ${option.returnsLabel}.`);
+  }
   function reload() {
     if (!hero || !hero.weaponState || phase !== "player") return;
     const next = reloadWeapon(hero);
@@ -684,8 +849,17 @@ export function App() {
       return setLog("Возврат на базу завершён. Рюкзак разгружен в stash.");
     }
     const resolved = resolveDefeatReturn(campaign, character, catalog?.progression.curve);
-    if (!persist(units, "player", resolved.campaign, depositBackpack(inventory), base, save?.turn ?? 1, save?.rngState ?? 0, arena, resolved.character)) return;
-    setLog(penaltyLog(resolved.penalty));
+    /**
+     * W5-05 — the loot penalty is applied from `pendingLoss.inventory`, i.e. the *same* object the
+     * screen previewed, and only then deposited. Order matters: charging the penalty after the
+     * deposit would take from the stash, which is precisely what the ticket forbids.
+     */
+    const afterLoss = pendingLoss?.applies && pendingLoss.inventory ? pendingLoss.inventory : inventory;
+    if (!persist(units, "player", resolved.campaign, depositBackpack(afterLoss), base, save?.turn ?? 1, pendingLoss?.rngState ?? save?.rngState ?? 0, arena, resolved.character)) return;
+    const lossLog = pendingLoss?.applies && pendingLoss.lostUnits > 0
+      ? ` Потеряно из рюкзака: ${pendingLoss.lines.map((line) => `${line.label} ×${line.lost}`).join(", ")}.`
+      : "";
+    setLog(`${penaltyLog(resolved.penalty)}${lossLog}`);
   }
   function retryMission() {
     if (!catalog || !inventory || !base) return;
@@ -695,9 +869,16 @@ export function App() {
     /* Re-entering immediately costs the same as walking home: retry is not a free undo. */
     const resolved = resolveDefeatRetry(campaign, character, catalog.missions, catalog.progression.curve);
     if (resolved.campaign === campaign) return;
-     if (!persist(initialUnits(selectedArena, catalog.equipment, inventory, units), "player", resolved.campaign, inventory, base, 1, save?.rngState ?? 0, selectedArena, resolved.character)) return;
+    /* W5-05: the loot penalty is charged on this exit too, for the same reason the XP one is — a
+       retry that skipped it would be the cheapest way out of a defeat, and the preview the player
+       just read would have been wrong about what leaving costs. */
+    const afterLoss = pendingLoss?.applies && pendingLoss.inventory ? pendingLoss.inventory : inventory;
+     if (!persist(initialUnits(selectedArena, catalog.equipment, afterLoss, units), "player", resolved.campaign, afterLoss, base, 1, pendingLoss?.rngState ?? save?.rngState ?? 0, selectedArena, resolved.character)) return;
      setTargetId(null);
-     setLog(resolved.penalty.xpLost > 0 ? `Повторная попытка: −${resolved.penalty.xpLost} XP за поражение.` : "Повторная попытка без штрафа XP.");
+     const lossLog = pendingLoss?.applies && pendingLoss.lostUnits > 0
+       ? ` Потеряно из рюкзака: ${pendingLoss.lostUnits} ед.`
+       : "";
+     setLog(`${resolved.penalty.xpLost > 0 ? `Повторная попытка: −${resolved.penalty.xpLost} XP за поражение.` : "Повторная попытка без штрафа XP."}${lossLog}`);
   }
   function collectReward() {
      if (rewardClaimInFlight.current || !activeReward || !inventory || !base || !campaignMissions) return;
@@ -758,8 +939,9 @@ export function App() {
      setLog(`${result.equipment.itemId}: durability восстановлена.`);
   }
   function medbay() {
-    if (!hero || !inventory || !base) return;
-    const result = treatHero(base, inventory, hero.hp, hero.maxHp);
+    if (!hero || !inventory || !base || !catalog) return;
+    /* Heal amount comes from the catalog, so a bought medbay level applies without a code change. */
+    const result = treatHero(base, inventory, hero.hp, hero.maxHp, catalog.upgrades);
     if (!result.ok)
       return setLog(
         result.reason === "no-bandage"
@@ -780,12 +962,16 @@ export function App() {
   function upgrade(id: string) {
     if (!catalog || !inventory || !base) return;
     const result = applyUpgrade(base, inventory, id, catalog.upgrades);
-    if (!result.ok)
+    /* The refusal is read off the same option model the button rendered, so the message names the
+       actual blocker (wrong level / maxed node / which resource) instead of listing all three. */
+    if (!result.ok) {
+      const option = basePanel?.upgrades.find((entry) => entry.id === id);
       return setLog(
-        "Улучшение сейчас недоступно: проверьте уровень и stash-ресурсы.",
+        option?.reason ?? "Улучшение сейчас недоступно: проверьте уровень и stash-ресурсы.",
       );
+    }
      if (!persist(units, "player", campaign, result.inventory, result.base)) return;
-     setLog(`${result.upgrade.name}: готово.`);
+     setLog(`${result.upgrade.name}: готово. ${result.upgrade.description}`);
   }
   function craftRecipe(id: string) {
     if (!catalog || !inventory || !base) return;
@@ -796,14 +982,14 @@ export function App() {
       catalog.recipes,
       (itemId) => catalog.items.find((item) => item.id === itemId)?.weight ?? 1,
     );
-    if (!result.ok)
-      return setLog(
-        result.reason === "insufficient-resources"
-          ? "Недостаточно ресурсов в stash."
-          : "Рецепт сейчас недоступен.",
-      );
+    if (!result.ok) {
+      const option = basePanel?.recipes.find((entry) => entry.id === id);
+      return setLog(option?.reason ?? "Рецепт сейчас недоступен.");
+    }
      if (!persist(units, "player", campaign, result.inventory, base)) return;
-     setLog(`${result.recipe.name}: создано в stash.`);
+     setLog(
+       `${result.recipe.name}: создано в stash — ${itemLabel(result.recipe.output.itemId, catalog)} ×${result.recipe.output.quantity}.`,
+     );
   }
   function moveItem(id: string, from: "stash" | "backpack") {
     if (!inventory || !base) return;
@@ -830,7 +1016,7 @@ export function App() {
           : "Ресурс недоступен.",
       );
      if (!persist(units, "player", campaign, result.inventory, base)) return;
-     setLog(`${id} перемещён.`);
+     setLog(`${RESOURCE_LABELS[id]} перемещён.`);
   }
   function assignSlot(index: number) {
     if (!inventory || !base || !selectedBackpackItem)
@@ -858,13 +1044,23 @@ export function App() {
       loadZones(),
       loadEquipmentCatalog(),
       loadProgression(),
+      loadItemEffects(),
+      loadReturnTables(),
     ])
-      .then(async ([manifest, missions, rewards, upgrades, recipes, items, zones, equipment, progression]) => {
+      .then(async ([manifest, missions, rewards, upgrades, recipes, items, zones, equipment, progression, itemEffects, returnTables]) => {
 const arenas = await loadArenaCatalog(
            manifest,
            new Set(missions.map((mission) => mission.arenaId)),
            equipment,
          );
+        /**
+         * W5-03/W5-04 — the two new catalogs are cross-checked here, at boot, with the equipment and
+         * ammo id sets in hand. That is the only place they can be: an effect naming a calibre no
+         * weapon chambers, or a return table that would make a craft → dismantle cycle profitable,
+         * is a *cross-file* error invisible to either file's own validator. Failing the boot is the
+         * point — a quick slot that costs AP and does nothing, or an exploit that prints resources,
+         * would otherwise be discovered by a player rather than by the loader.
+         */
         const validatedCampaign = validateCampaignCatalog(
           {
             zones,
@@ -872,9 +1068,19 @@ const arenas = await loadArenaCatalog(
             rewards,
             items,
             recipes,
+            upgrades,
+            itemEffects,
+            returnTables,
           },
           new Set(arenas.all.map((arena) => arena.id)),
           new Set(items.map((item) => item.id)),
+          {
+            equipmentIds: new Set([
+              ...equipment.weapons.map((entry) => entry.id),
+              ...equipment.armor.map((entry) => entry.id),
+            ]),
+            ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
+          },
         );
         if (!validatedCampaign.ok) throw validatedCampaign.error;
         const validatedCatalog = validatedCampaign.value;
@@ -900,7 +1106,7 @@ const arenas = await loadArenaCatalog(
            as it was found, not as it will be after the upgrade write below. */
         const upgradeFromLegacyKey = saveAdapter.hasPendingUpgrade();
         const loaded = saveAdapter.load(fallback.arenaId, catalogOptions);
-        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, equipment, progression };
+        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, itemEffects, returnTables, equipment, progression };
         if (loaded && !loaded.ok) {
           const backupSucceeded = saveAdapter.backupCorrupt();
           setRecovery({ error: loaded.error, backupSucceeded, content: false });
@@ -1012,6 +1218,12 @@ const arenas = await loadArenaCatalog(
        if (shortcut.action === "end-turn") endTurn();
        if (shortcut.action === "overwatch") activateOverwatch();
        if (shortcut.action === "select-body-part") setPart(shortcut.part);
+       /* W5-03: Shift+1…4. `preventDefault` because Shift+digit is a browser-level character
+          input, and leaving it unhandled would type into whatever has focus. */
+       if (shortcut.action === "use-quick-slot") {
+         event.preventDefault();
+         useSlot(shortcut.index);
+       }
      };
      window.addEventListener("keydown", keydown);
      return () => window.removeEventListener("keydown", keydown);
@@ -1069,7 +1281,7 @@ const arenas = await loadArenaCatalog(
         </section>
       </main>
     );
-  if (bootView.loading || !arena || !catalog || !save || !inventory || !base)
+  if (bootView.loading || !arena || !catalog || !save || !inventory || !base || !basePanel || !quickSlotBar || !dismantlePanel)
     return (
       <main class="game-shell loading" data-boot-phase={bootView.phase}>
         <h1>{bootView.heading}</h1>
@@ -1158,21 +1370,48 @@ const arenas = await loadArenaCatalog(
             <p>
               Рюкзак:{" "}
               <b>
-                {totalWeight(inventory).toFixed(0)}/{inventory.backpackCapacity}
+                {basePanel.capacity.used.toFixed(0)}/{basePanel.capacity.total}
               </b>{" "}
               · stash без лимита
             </p>
-            <p>
-              Stash: металл {resourceQuantity(inventory, "metal")}, ткань{" "}
-              {resourceQuantity(inventory, "cloth")}
+            {/* Every resource the catalog can ask for, including the ones at zero: a missing
+                resource that is simply absent from the list makes an unaffordable recipe
+                unreadable (W5-02 «список отсутствующих ресурсов в UI»). */}
+            <p class="stash-overview">
+              Stash:{" "}
+              {basePanel.stash.map((entry, index) => (
+                <span
+                  key={entry.id}
+                  class={entry.quantity === 0 ? "resource empty" : "resource"}
+                  data-resource={entry.id}
+                  data-quantity={entry.quantity}
+                >
+                  {index > 0 ? ", " : ""}
+                  {entry.label} {entry.quantity}
+                </span>
+              ))}
             </p>
-            <p>
-              Узлы: верстак L{base.workbench}, медотсек L{base.medbay}, склад L
-              {base.stash}
-            </p>
+            {/* Node ladder: current level, what it does now, and the single next transition. */}
+            <ul class="base-nodes">
+              {basePanel.nodes.map((node) => (
+                <li key={node.node} data-node={node.node} data-level={node.level}>
+                  <b>
+                    {node.label} {node.levelLabel}
+                  </b>{" "}
+                  · {node.effectSummary} ·{" "}
+                  {node.atMaxLevel
+                    ? "максимальный уровень"
+                    : `далее L${node.next?.targetLevel}: ${node.next?.effectSummary} за ${node.next?.costLabel}`}
+                </li>
+              ))}
+            </ul>
             {baseActionsAvailable && (
               <>
-                <div class="actions">
+                {/* `primary-actions` marks the card's own call-to-action group, so the phone
+                    stylesheet can promote «ВЫБРАТЬ МИССИЮ» to the same fixed bottom bar the other
+                    four screens get. Addressed by class rather than by position: the W5 readouts
+                    above it (stash overview, node ladder) already moved this block once. */}
+                <div class="actions primary-actions">
                   {repairTargets.map((target) => (
                     <button
                       key={target.instanceId}
@@ -1202,25 +1441,108 @@ const arenas = await loadArenaCatalog(
                     {itemLabel(entry.itemId, catalog)}: <b>{equipmentDurabilityPercent(entry)}% durability</b>
                   </p>
                 ))}
+                {/*
+                  Craft and upgrade entries are rendered `aria-disabled`, not `disabled`.
+
+                  A `disabled` button is removed from the tab order and stops reporting anything, so
+                  the two questions a full catalog raises — «почему нельзя» and «чего не хватает» —
+                  would be answerable only by sighted mouse users reading the label. `aria-disabled`
+                  announces unavailability while keeping the control reachable, and the refusal is
+                  safe by construction: `craft`/`applyUpgrade` preflight and refuse atomically, and
+                  the click logs the same reason the label states (W5-01 §3, W5-02 §1–2).
+                */}
                 <h3>Крафт</h3>
-                <div class="actions">
-                  {catalog.recipes.map((recipe) => (
-                    <button key={recipe.id} onClick={() => craftRecipe(recipe.id)}>
-                      {recipe.name} — {recipe.description}
+                <div class="actions craft-actions">
+                  {basePanel.recipes.map((recipe) => (
+                    <button
+                      key={recipe.id}
+                      data-recipe={recipe.id}
+                      data-blocked={recipe.blocked ?? ""}
+                      aria-disabled={recipe.disabled}
+                      aria-label={recipe.ariaLabel}
+                      class={recipe.available ? "" : "unavailable"}
+                      onClick={() => craftRecipe(recipe.id)}
+                    >
+                      {recipe.label}
+                      <small>
+                        {recipe.nodeLabel} L{recipe.nodeLevel} · даёт {recipe.outputLabel} · цена: {recipe.costLabel}
+                        {recipe.available ? "" : ` · ${recipe.reason}`}
+                      </small>
                     </button>
                   ))}
                 </div>
                 <h3>Улучшения</h3>
-                <div class="actions">
-                  {catalog.upgrades.map((entry) => (
+                <div class="actions upgrade-actions">
+                  {basePanel.upgrades.map((entry) => (
                     <button
                       key={entry.id}
-                      disabled={base[entry.node] >= entry.targetLevel}
+                      data-upgrade={entry.id}
+                      data-blocked={entry.blocked ?? ""}
+                      aria-disabled={entry.disabled}
+                      aria-label={entry.ariaLabel}
+                      class={entry.available ? "" : "unavailable"}
                       onClick={() => upgrade(entry.id)}
                     >
-                      {entry.name}: {entry.description}
+                      {entry.label}
+                      <small>
+                        {entry.nodeLabel} L{entry.targetLevel} · {entry.effectSummary} · цена: {entry.costLabel}
+                        {entry.available ? "" : ` · ${entry.reason}`}
+                      </small>
                     </button>
                   ))}
+                </div>
+                {/*
+                  W5-04 — dismantle.
+
+                  Every row states its return *before* anything is destroyed, from the same table the
+                  transaction reads, so the preview cannot disagree with the payout. Every destruction
+                  takes two presses, because one misclick would otherwise be irreversible (criterion
+                  3). Gear the hero is using is listed but permanently unavailable rather than hidden:
+                  hiding it would make «почему нельзя разобрать жилет» unanswerable, and allowing it
+                  would soft-lock the run. The repair price sits next to the return so the two options
+                  are comparable, without this screen recommending one.
+                */}
+                <h3 id="dismantle-title">Разборка</h3>
+                <p class="dismantle-summary">{dismantlePanel.summary}</p>
+                <p class="sr-only" aria-live="polite">
+                  {dismantlePanel.pendingConfirmation
+                    ? dismantlePanel.pendingConfirmation.reason
+                    : dismantlePanel.summary}
+                </p>
+                {dismantlePanel.pendingConfirmation && (
+                  <p class="dismantle-confirm" role="alert" data-confirming={dismantlePanel.pendingConfirmation.id}>
+                    Подтвердите разборку: {dismantlePanel.pendingConfirmation.label} будет уничтожен
+                    безвозвратно. Возврат: {dismantlePanel.pendingConfirmation.returnsLabel}.
+                    <button type="button" class="dismantle-cancel" onClick={() => { setConfirmingDismantle(null); setLog("Разборка отменена."); }}>
+                      ОТМЕНИТЬ
+                    </button>
+                  </p>
+                )}
+                <div class="actions dismantle-actions" role="group" aria-labelledby="dismantle-title">
+                  {dismantlePanel.options.map((option) => (
+                    <button
+                      key={`${option.kind}-${option.id}`}
+                      data-dismantle={option.id}
+                      data-dismantle-kind={option.kind}
+                      data-blocked={option.blocked ?? ""}
+                      data-equipped={option.equipped}
+                      aria-disabled={option.disabled}
+                      aria-label={option.ariaLabel}
+                      class={option.confirming ? "confirming" : option.available ? "" : "unavailable"}
+                      onClick={() => dismantle(option.id)}
+                    >
+                      {option.confirming ? "ПОДТВЕРДИТЬ РАЗБОРКУ: " : "РАЗОБРАТЬ: "}
+                      {option.label}
+                      {option.quantityLabel ? ` ${option.quantityLabel}` : ""}
+                      <small>
+                        возврат: {option.returnsLabel}
+                        {option.conditionLabel ? ` · ${option.conditionLabel}` : ""}
+                        {option.repairCostLabel ? ` · ${option.repairCostLabel}` : ""}
+                        {option.available ? "" : ` · ${option.reason}`}
+                      </small>
+                    </button>
+                  ))}
+                  {dismantlePanel.options.length === 0 && <p>Нет предметов для разборки.</p>}
                 </div>
               </>
             )}
@@ -1235,12 +1557,17 @@ const arenas = await loadArenaCatalog(
                 Нажмите строку, чтобы перенести одну единицу. Рюкзак имеет весовой
                 лимит; stash — нет.
               </p>
+              <p class="capacity-readout">
+                Занято <b>{basePanel.capacity.used.toFixed(0)}</b> из{" "}
+                <b>{basePanel.capacity.total}</b> · свободно{" "}
+                <b>{freeCapacity(inventory).toFixed(0)}</b>
+              </p>
               <h3>Stash</h3>
               <ul>
                 {inventory.stash.resources.map((entry) => (
                   <li key={`sr-${entry.id}`}>
                     <button onClick={() => moveResource(entry.id, "stash")}>
-                      {entry.id} ×{entry.quantity} → рюкзак
+                      {RESOURCE_LABELS[entry.id]} ×{entry.quantity} → рюкзак
                     </button>
                   </li>
                 ))}
@@ -1251,13 +1578,18 @@ const arenas = await loadArenaCatalog(
                     </button>
                   </li>
                 ))}
+                {/* An empty stash must say so rather than rendering an empty list, otherwise
+                    "нет ресурсов" is indistinguishable from "панель не отрисовалась". */}
+                {!inventory.stash.resources.length && !inventory.stash.items.length && (
+                  <li class="empty-pool">Stash пуст.</li>
+                )}
               </ul>
               <h3>Рюкзак</h3>
               <ul>
                 {inventory.backpack.resources.map((entry) => (
                   <li key={`br-${entry.id}`}>
                     <button onClick={() => moveResource(entry.id, "backpack")}>
-                      {entry.id} ×{entry.quantity} → stash
+                      {RESOURCE_LABELS[entry.id]} ×{entry.quantity} → stash
                     </button>
                   </li>
                 ))}
@@ -1277,6 +1609,9 @@ const arenas = await loadArenaCatalog(
                     </button>
                   </li>
                 ))}
+                {!inventory.backpack.resources.length && !inventory.backpack.items.length && (
+                  <li class="empty-pool">Рюкзак пуст.</li>
+                )}
               </ul>
               <h3>Quick slots</h3>
               <div class="quick-slots">
@@ -1327,8 +1662,52 @@ const arenas = await loadArenaCatalog(
                     ? `Отступление: награда не получена, XP не теряется. ${levelSummary(character, catalog)}.`
                     : pendingPenalty.firstDeathFree
                       ? `Первое поражение: штрафа XP нет. Следующее поражение будет стоить XP. ${levelSummary(character, catalog)}.`
-                      : `Поражение: штраф −${pendingPenalty.xpLost} XP (${Math.round(pendingPenalty.xpLossRate * 100)}% от XP до следующего уровня). Уровень ${pendingPenalty.level} не понизится, XP не станет отрицательным. Ресурсы, stash и экипировка не затронуты.`}
+                      : `Поражение: штраф −${pendingPenalty.xpLost} XP (${Math.round(pendingPenalty.xpLossRate * 100)}% от XP до следующего уровня). Уровень ${pendingPenalty.level} не понизится, XP не станет отрицательным. Stash и экипировка не затронуты.`}
                 </p>
+                {/*
+                  W5-05 — the loot half of the penalty, listed item by item *before* the player
+                  confirms. This is a preview only in the UI sense: `pendingLoss.inventory` is the
+                  exact object `returnHome` commits, so the list and the outcome are one computation.
+
+                  The rule is marked as a proposal in the DOM (`data-proposed`) and in the visible
+                  text, because decision D-01 is open. What is *not* taken is stated as well: a
+                  penalty screen that only names losses invites the assumption that the base was
+                  raided too.
+                */}
+                {pendingLoss && (
+                  <p
+                    class="backpack-loss"
+                    role="status"
+                    data-loss-applies={pendingLoss.applies}
+                    data-loss-units={pendingLoss.lostUnits}
+                    data-carried-units={pendingLoss.carriedUnits}
+                    data-loss-rate={pendingLoss.ratePercent}
+                    data-proposed={pendingLoss.proposed}
+                  >
+                    {pendingLoss.applies ? (
+                      <>
+                        <b>{pendingLoss.summary}</b>{" "}
+                        {pendingLoss.lines.length > 0 && (
+                          <span class="loss-lines">
+                            Будет потеряно:{" "}
+                            {pendingLoss.lines.map((line, index) => (
+                              <span key={`${line.kind}-${line.id}`} class="loss-line" data-loss-id={line.id} data-loss-lost={line.lost}>
+                                {index > 0 ? ", " : ""}
+                                {line.text}
+                              </span>
+                            ))}
+                            .{" "}
+                          </span>
+                        )}
+                        {pendingLoss.policyLabel} {pendingLoss.safetyNote}
+                      </>
+                    ) : (
+                      <>
+                        {pendingLoss.skippedReason} {pendingLoss.safetyNote}
+                      </>
+                    )}
+                  </p>
+                )}
                 <div class="actions"><button onClick={returnHome}>ВЕРНУТЬСЯ НА БАЗУ</button><button onClick={retryMission}>ПОВТОРИТЬ МИССИЮ</button></div>
               </>
             )}
@@ -1439,6 +1818,54 @@ const arenas = await loadArenaCatalog(
             </button>
           )}
           <p class="tactical-help">{combatScreen.shortcutsHint}</p>
+          {/*
+            W5-03 — the quick-slot bar.
+
+            All four slots render, including empty ones: the bar doubles as the readout of what the
+            operative is carrying, and a list that shrank as items ran out would make "nothing left"
+            indistinguishable from "did not render".
+
+            Unavailable slots are `aria-disabled`, not `disabled`, so a keyboard or screen-reader
+            user can still reach the control and hear *why* it cannot be used mid-turn — the one
+            thing they need. Safe by construction: `useQuickSlot` re-checks `quickSlotBlocker` and
+            consumes nothing on refusal. Each button is also a touch target at the 44px floor via
+            `.tactical-options button`.
+          */}
+          <h3 id="tactical-quick-slots-title">Быстрые слоты</h3>
+          <p class="tactical-summary">{quickSlotBar.summary}</p>
+          <p class="sr-only" aria-live="polite">
+            {quickSlotBar.liveMessage}
+          </p>
+          <div
+            class="tactical-options quick-slot-bar"
+            role="group"
+            aria-labelledby="tactical-quick-slots-title"
+          >
+            {quickSlotBar.options.map((option) => (
+              <button
+                key={option.index}
+                type="button"
+                data-quick-slot={option.slotNumber}
+                data-blocked={option.blocked ?? ""}
+                aria-disabled={option.disabled}
+                aria-label={option.ariaLabel}
+                class={option.available ? "" : "unavailable"}
+                onClick={() => useSlot(option.index)}
+              >
+                <b>
+                  {option.slotNumber}. {option.label}
+                  {option.itemId ? ` ×${option.quantity}` : ""}
+                </b>
+                <span>
+                  {option.itemId
+                    ? `${option.effectSummary} · ${option.apCost} ОЧ · ${quickSlotShortcutLabel(option.index)}`
+                    : "назначьте расходник на базе"}
+                  {option.available ? "" : ` · ${option.reason}`}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p class="tactical-help">{quickSlotBar.shortcutsHint}</p>
           <h3 id="equipment-state-title">{combatScreen.equipment.title}</h3>
           <section
             class="equipment-state"

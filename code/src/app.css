@@ -172,6 +172,25 @@
   opacity: 0.7;
   cursor: not-allowed;
 }
+/*
+  W5-03/W5-04 — unavailable-but-reachable controls.
+
+  `aria-disabled` controls (quick slots, craft, upgrades, dismantle) must look unavailable while
+  staying in the tab order, so the styling is attached to the class rather than to `:disabled`. The
+  dimming stops at 0.72 so the reason text stays legible: the whole point of keeping the control
+  reachable is that its label explains the refusal.
+*/
+.tactical-options button.unavailable,
+.actions button.unavailable {
+  border-color: #3d5a64;
+  opacity: 0.72;
+}
+/* The armed confirmation step of an irreversible dismantle: warm, high-contrast, never hover-only. */
+.actions button.confirming {
+  border-color: #ffb36b;
+  background: #3a2a1a;
+  color: #ffe6c7;
+}
 .disclosure {
   width: 100%;
   min-height: 44px;
@@ -354,6 +373,60 @@
   background: rgba(106, 217, 161, 0.08);
   color: #cfeadd;
 }
+/*
+  W5-05 — the backpack loss preview, styled as a sibling of the XP penalty rather than merged into
+  it. The two are different consequences with different rules (one is XP, one is carried loot), and a
+  single block would make "первое поражение бесплатно" ambiguous about which half it applies to.
+
+  Colour is again only a supporting cue: the text states what is lost and what is not, so the notice
+  is complete without it. `[data-loss-applies="false"]` gets the same reassuring green as a zero XP
+  penalty, so "nothing was taken" reads consistently across both halves.
+*/
+.backpack-loss {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-left: 3px solid #d9b46a;
+  background: rgba(217, 180, 106, 0.09);
+  font: 12px/1.55 ui-monospace, monospace;
+  color: #f0e5c4;
+}
+.backpack-loss[data-loss-applies="false"] {
+  border-left-color: #6ad9a1;
+  background: rgba(106, 217, 161, 0.08);
+  color: #cfeadd;
+}
+/* An unapproved balance number is marked in the UI, not only in a comment (decision D-01). */
+.backpack-loss[data-proposed="true"] {
+  border-left-style: dashed;
+}
+.backpack-loss .loss-line {
+  color: #ffd9a8;
+}
+
+/* --------------------------------------------------------------- dismantle (W5-04) */
+.dismantle-summary {
+  font: 12px/1.5 ui-monospace, monospace;
+  color: #cfe3e8;
+}
+/* The armed confirmation banner for worn gear. `role="alert"` carries it to assistive tech; this
+   only makes it impossible to miss visually as well. */
+.dismantle-confirm {
+  padding: 9px 11px;
+  border-left: 3px solid #ffb36b;
+  background: rgba(255, 179, 107, 0.1);
+  font: 12px/1.55 ui-monospace, monospace;
+  color: #ffe6c7;
+}
+.dismantle-confirm .dismantle-cancel {
+  display: block;
+  margin-top: 8px;
+}
+.dismantle-actions button small {
+  display: block;
+  margin-top: 3px;
+  font: 11px/1.4 ui-monospace, monospace;
+  color: #a8c0c8;
+}
 
 /* ------------------------------------------------------- campaign / inventory */
 .inventory-panel ul {
@@ -478,7 +551,17 @@
   }
   .campaign.mission-select .mission-card:first-child > button,
   .campaign.reward .campaign-grid > .card:last-child .actions > button:first-child,
-  .campaign.return .campaign-grid > .card:last-child .actions > button:first-child {
+  .campaign.return .campaign-grid > .card:last-child .actions > button:first-child,
+  /*
+    The base screen's own CTA. Added with the W5 base panel: the stash overview, the node ladder and
+    the craft/upgrade/dismantle catalogs pushed «ВЫБРАТЬ МИССИЮ» from y≈515 to y≈745, past the
+    640px fold, so the button now needs the same fixed bar as the other four screens instead of
+    relying on the panel above it staying short.
+
+    Scoped to `.campaign.home`, not to the panel alone: the home card is also mounted on
+    `mission-select`, which already pins its own «НАЧАТЬ», and two fixed bars would stack.
+  */
+  .campaign.home .home-panel .primary-actions > button:last-child {
     position: fixed;
     right: 0;
     bottom: calc(12px + env(safe-area-inset-bottom));
@@ -488,6 +571,10 @@
     box-shadow: 0 -4px 18px #000a;
   }
   .combat .action-tray {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  /* Room for the pinned bar, so it cannot cover the last row of whichever screen pinned one. */
+  .campaign .campaign-grid {
     padding-bottom: calc(64px + env(safe-area-inset-bottom));
   }
 
