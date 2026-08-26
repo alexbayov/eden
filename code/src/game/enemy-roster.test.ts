@@ -20,9 +20,10 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { parseEquipmentCatalog, type EquipmentCatalog } from './equipment-content'
+import { applyEnemyArchetype, parseEquipmentCatalog, type EquipmentCatalog } from './equipment-content'
 import { parseArenaContent } from './content'
-import { calculateDamage, type Unit } from './combat'
+import { calculateDamage, startTurn, type Unit } from './combat'
+import { runEnemyTurn } from './enemy-ai'
 import { ENEMY_ATTACK_PART } from './enemy-decision'
 import { BEHAVIOR_PROFILES } from './enemy-decision'
 
@@ -150,5 +151,44 @@ describe('W6-06 no archetype one-shots a full-HP hero on a plain hit (criterion 
        given to any archetype until the hero's survivability changes (a W3-04 balance call). */
     expect(equipment.weapons.some((entry) => entry.id === 'sawn-shotgun')).toBe(true)
     expect(equipment.enemies.some((entry) => entry.weaponId === 'sawn-shotgun')).toBe(false)
+  })
+})
+
+describe('W6 closing — the AI fix is reachable on shipped content, not only in fixtures', () => {
+  it('shipped enemies reload instead of going silent after their magazine empties', () => {
+    /*
+     * The regression this guards is the one W6-02 was written for, checked against the *shipped* arenas rather
+     * than a hand-built board. Before that ticket an enemy with an empty magazine did nothing and one with a jam
+     * did nothing for the rest of the encounter, so `wild-rusher` with the three-round `hornet` fired three times
+     * and then followed the hero around harmlessly.
+     *
+     * The hero is given 500 HP so the encounter cannot end early and every enemy gets its full run of turns;
+     * `startTurn` restores enemy AP between turns exactly as `runEnemyTurn` does in play.
+     */
+    const equipmentCatalog = parseEquipmentCatalog(shipped('equipment'))
+    let reloads = 0
+    let shots = 0
+    for (const arena of arenas) {
+      let units: Unit[] = arena.units.map((unit) => {
+        const ready = { ...unit, ap: 10 } as Unit
+        return ready.team === 'enemy'
+          ? applyEnemyArchetype(ready, equipmentCatalog)
+          : { ...ready, hp: 500, maxHp: 500 }
+      })
+      const cover = arena.cover.map((entry) => ({ ...entry, kind: entry.type }))
+      for (let turn = 0; turn < 30; turn += 1) {
+        const resolved = runEnemyTurn(units, arena.width, arena.height, cover, () => 50)
+        units = resolved.units.map((unit) => (unit.team === 'enemy' ? startTurn(unit) : unit))
+        for (const line of resolved.log) {
+          if (line.includes('перезарядка')) reloads += 1
+          if (line.includes('урона') || line.includes('промах')) shots += 1
+        }
+      }
+    }
+    /* Measured at 57 shots and 6 reloads across 90 enemy turns on the shipped maps. Bounded loosely, because the
+       exact counts depend on magazine sizes that balance may change; what must not regress is that reloading
+       happens at all and that firing continues well past the smallest magazine in the catalog. */
+    expect(reloads).toBeGreaterThan(0)
+    expect(shots).toBeGreaterThan(30)
   })
 })
