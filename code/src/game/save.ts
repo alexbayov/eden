@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type { Posture, Statuses, Unit } from "./combat";
+import { AP_MAX, type Posture, type Statuses, type Unit } from "./combat";
+import { isOverwatchState } from "./combat-overwatch";
 import { createCampaign, type CampaignMission, type CampaignState } from "./campaign";
 import { defaultBase, isValidBase, type BaseState } from "./base";
 import { createInventory, isEquipmentSlot, isResourceId, type EquipmentInstance, type EquipmentSlot, type Inventory } from "./inventory";
@@ -177,6 +178,22 @@ function checkUnit(value: unknown, path: string, issues: SaveIssue[]) {
   if (!int(value.hp) || !int(value.maxHp, 1) || value.hp > value.maxHp) issue(issues, `${path}.hp`, "0..maxHp");
   if (value.posture !== undefined && !postures.has(value.posture)) issue(issues, `${path}.posture`, "valid posture");
   if (value.statuses !== undefined && (!record(value.statuses) || Object.entries(value.statuses).some(([k, n]) => !statuses.has(k as keyof Statuses) || !int(n)))) issue(issues, `${path}.statuses`, "валидные статусы");
+  /**
+   * W6-04 — `overwatch` was **not validated at all** before this ticket.
+   *
+   * `grep overwatch src/game/save.ts` returned nothing, and every one of these loaded cleanly:
+   * `reservedAp: 9999`, `-5`, `1.5`, `'lots'`, `{}`, and a block attached to an enemy unit. The first is a
+   * free reaction far stronger than the game can grant, the string would flow into `combatAttack`'s AP
+   * comparison, and an enemy carrying the block is a state no transition produces — enemy Overwatch does not
+   * exist (explicitly out of scope in W6-04).
+   *
+   * Bounded by `AP_MAX` rather than `AP_PER_TURN` because `startTurn` can grant up to 15 AP, so a legitimate
+   * reserve can exceed the nominal 10.
+   */
+  if (value.overwatch !== undefined) {
+    if (value.team !== "player") issue(issues, `${path}.overwatch`, "только у игрока");
+    else if (!isOverwatchState(value.overwatch, AP_MAX)) issue(issues, `${path}.overwatch`, `{ reservedAp: 0..${AP_MAX} }`);
+  }
 }
 function checkArmorReduction(actual: unknown, expected: ArmorDefinition["reduction"], path: string, issues: SaveIssue[]) {
   if (!record(actual)) return issue(issues, path, "reduction совпадает с armor definition");
@@ -464,6 +481,18 @@ function validateVersioned(input: unknown, expected: SupportedSchemaVersion, opt
    * on the home screen carrying `carrying: true` would hand the player a delivered objective the moment
    * the next retrieval mission starts.
    */
+  /**
+   * W6-04 — Overwatch cannot exist outside an active mission.
+   *
+   * A block on the home screen was accepted before this ticket, which would arm a reaction on a screen where
+   * Overwatch cannot be activated and where no enemy phase runs. `runEnemyTurn` clears it at the end of every
+   * phase, so a persisted block anywhere but a live mission is a state the game does not produce.
+   */
+  if (record(input.campaign) && input.campaign.screen !== "mission" && Array.isArray(input.units))
+    input.units.forEach((unit: unknown, index: number) => {
+      if (record(unit) && unit.overwatch !== undefined)
+        issue(issues, `$.units[${index}].overwatch`, "только в активной миссии");
+    });
   if (expected >= 6) {
     if (!isObjectiveState(input.objective)) issue(issues, "$.objective", "heldTurns >= 0 и carrying");
     else if (record(input.campaign) && input.campaign.screen !== "mission" && (input.objective.heldTurns !== 0 || input.objective.carrying))

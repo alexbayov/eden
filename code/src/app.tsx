@@ -27,6 +27,7 @@ import {
   postureOptions,
   statusViews,
 } from "./game/combat-readout";
+import { OVERWATCH_ACTIVATION_AP, buildOverwatchView } from "./game/combat-overwatch";
 import {
   canRetreatFromMission,
   missionDefeat,
@@ -578,6 +579,22 @@ export function App() {
   const critView = hero && target ? buildCritView(hero, part) : null;
   const heroStatuses = statusViews(hero?.statuses);
   const postures = postureOptions(hero, phase);
+  /**
+   * W6-04 — the Overwatch readout.
+   *
+   * `reservedAp` appeared exactly once in this file before now, on the write at activation; the −15 reaction
+   * penalty appeared nowhere outside `combat.ts`. Overwatch is committed a whole enemy turn in advance, which
+   * is precisely when the player needs both numbers rather than after the reaction has resolved.
+   */
+  const overwatchView = buildOverwatchView({
+    hero,
+    phase,
+    target: target ?? undefined,
+    targetCover:
+      hero && target && arena
+        ? defensiveCover(hero, target, arena.cover.map((cover) => ({ ...cover, kind: cover.type })))
+        : "none",
+  });
   const sceneState: SceneState = {
     units,
     selectedId: "hero",
@@ -936,7 +953,7 @@ export function App() {
             ? {
                 ...unit,
                 ap: 0,
-                overwatch: { reservedAp: Math.max(0, unit.ap - 2) },
+                overwatch: { reservedAp: Math.max(0, unit.ap - OVERWATCH_ACTIVATION_AP) },
               }
             : unit,
         )
@@ -957,9 +974,16 @@ export function App() {
       300,
     );
   }
+  /**
+   * W6-04 — activates Overwatch, refusing with the reason the control already showed.
+   *
+   * The gate was the literal `6`, which is really `OVERWATCH_ACTIVATION_AP + torso.apCost` — the same rule
+   * written three times in this file and a fourth time as an unused constant in `combat.ts`. Derived now, so
+   * repricing a torso shot cannot leave a reserve too small to ever fire.
+   */
    function activateOverwatch() {
-     if (!hero || campaign.screen !== "mission" || hero.ap < 6 || phase !== "player")
-       return setLog("Для Overwatch нужны 2 ОЧ и 4 ОЧ в резерве.");
+     if (campaign.screen !== "mission" || !overwatchView.available)
+       return setLog(overwatchView.reason || "Overwatch сейчас недоступен.");
      endTurn(true);
    }
    function retreat() {
@@ -2313,10 +2337,22 @@ const arenas = await loadArenaCatalog(
              </button>
              <button
               class="overwatch"
-              disabled={phase !== "player"}
+              data-overwatch-active={overwatchView.active}
+              data-overwatch-reserved={overwatchView.reservedAp}
+              data-overwatch-modifier={overwatchView.hitModifier}
+              data-overwatch-total-ap={overwatchView.totalAp}
+              data-blocked={overwatchView.blocked ?? ""}
+              /* `aria-disabled`, not `disabled`: the control stays reachable so the reason is announced. It was
+                 previously gated on `phase` alone, so at 5 AP it looked available and refused on click. */
+              aria-disabled={!overwatchView.available}
+              aria-label={overwatchView.ariaLabel}
               onClick={activateOverwatch}
             >
-              OVERWATCH (O)
+              {overwatchView.active ? "OVERWATCH АКТИВЕН" : "OVERWATCH (O)"}
+              <small>
+                {overwatchView.summary}
+                {overwatchView.available || overwatchView.active ? "" : ` · ${overwatchView.reason}`}
+              </small>
             </button>
             <button
               class="end"

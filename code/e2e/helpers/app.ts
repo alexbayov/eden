@@ -157,6 +157,8 @@ export interface PersistedSave {
     /** W6-03: posture and statuses are what the combat readout is about. */
     posture?: "stand" | "crouch" | "prone";
     statuses?: Record<string, number>;
+    /** W6-04: the reservation, which was neither displayed nor validated before that ticket. */
+    overwatch?: { reservedAp: number };
   }>;
   campaign: {
     screen: string;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { LEGACY_SAVE_STORAGE_KEYS, SAVE_BACKUP_KEY, SAVE_SCHEMA_VERSION, SAVE_STORAGE_KEY, createLocalStorageAdapter, createMemoryStorage, defaultSave, deserializeSave, migrateSave, serializeSave, validateSave, type SaveData } from './save'
 import { claimReward, missionDefeat, missionVictory, retreatFromMission, retryMission, startMission, type CampaignMission } from './campaign'
 import { characterForXp, DEFAULT_LEVEL_CURVE, levelForXp, skillPointsGranted } from './progression'
-import type { Unit } from './combat'
+import { AP_MAX, type Unit } from './combat'
 import type { EquipmentCatalog } from './equipment-content'
 
 const DEFAULT_CAMPAIGN_MISSIONS: CampaignMission[] = [
@@ -399,6 +399,60 @@ describe('save schema v6 migration from v5 (W6-01 objective state)', () => {
     /* On an active mission the same progress is legitimate. */
     const active = activeSave()
     expect(validateSave({ ...active, objective: { heldTurns: 3, carrying: true } }, catalog).ok).toBe(true)
+  })
+})
+
+describe('save v6 overwatch validation (W6-04)', () => {
+  const watching = (overwatch: unknown, unitId = 'hero') => {
+    const active = activeSave()
+    return { ...active, units: active.units.map((unit) => (unit.id === unitId ? { ...unit, overwatch } : unit)) }
+  }
+
+  it('accepts a legitimate reserve', () => {
+    expect(validateSave(watching({ reservedAp: 4 }), catalog).ok).toBe(true)
+    expect(validateSave(watching({ reservedAp: 0 }), catalog).ok).toBe(true)
+    /* `startTurn` can grant up to AP_MAX, so a reserve above the nominal 10 is reachable. */
+    expect(validateSave(watching({ reservedAp: AP_MAX }), catalog).ok).toBe(true)
+  })
+
+  it('rejects every tampered payload that used to load cleanly', () => {
+    /*
+     * Before W6-04 `overwatch` was not validated at all — `grep overwatch save.ts` returned nothing — and all
+     * of these were accepted. `reservedAp: 9999` is a free reaction stronger than any turn can grant, and the
+     * string would reach `combatAttack`'s AP comparison as a string.
+     */
+    for (const tampered of [
+      { reservedAp: 9999 },
+      { reservedAp: AP_MAX + 1 },
+      { reservedAp: -5 },
+      { reservedAp: 1.5 },
+      { reservedAp: 'lots' },
+      { reservedAp: 4, bonus: 9 },
+      {},
+      null,
+    ])
+      expect(validateSave(watching(tampered), catalog).ok, JSON.stringify(tampered)).toBe(false)
+  })
+
+  it('refuses an enemy carrying Overwatch, a state no transition produces', () => {
+    /* Enemy Overwatch does not exist and is explicitly out of scope in W6-04, so a block on an enemy unit is
+       either tampering or a bug — either way it must not load. The base fixture is hero-only, so the enemy is
+       added here; the control case proves the unit itself is otherwise acceptable. */
+    const active = activeSave()
+    const raider = hero({ id: 'raider', name: 'Raider', team: 'enemy', hp: 16, maxHp: 16, x: 4, y: 1 })
+    const withEnemy = { ...active, units: [...active.units, raider] }
+    expect(validateSave(withEnemy, catalog).ok).toBe(true)
+    const armedEnemy = { ...active, units: [...active.units, { ...raider, overwatch: { reservedAp: 4 } }] }
+    expect(validateSave(armedEnemy, catalog).ok).toBe(false)
+  })
+
+  it('refuses Overwatch outside an active mission', () => {
+    /* `runEnemyTurn` clears the block at the end of every phase, so a persisted one on the home screen would
+       arm a reaction where Overwatch cannot be activated and no enemy phase runs. */
+    const home = defaultSave('perimeter-checkpoint', [hero()], undefined, DEFAULT_CAMPAIGN_MISSIONS)
+    const armed = { ...home, units: home.units.map((unit) => ({ ...unit, overwatch: { reservedAp: 4 } })) }
+    expect(validateSave(home, catalog).ok).toBe(true)
+    expect(validateSave(armed, catalog).ok).toBe(false)
   })
 })
 
