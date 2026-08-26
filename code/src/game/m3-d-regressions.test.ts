@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { resolveCombatShortcut } from './input-gating'
 import { retreatFromMission, startMission } from './campaign'
 import { applyEnemyArchetype, hydrateArenaUnits, parseEquipmentCatalog } from './equipment-content'
-import { calculateDamage, calculateHitBreakdown, runEnemyTurn, type Unit } from './combat'
+import {
+  calculateDamage,
+  calculateHitBreakdown,
+  type Unit,
+} from './combat'
+import { runEnemyTurn } from './enemy-ai'
 import { parseArenaContent } from './content'
 import { defaultSave, validateSave } from './save'
 import { resolveEnemyPhase } from './session'

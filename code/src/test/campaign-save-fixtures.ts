@@ -21,10 +21,10 @@ import {
   hasLineOfSight,
   isAlive,
   performCombatAttack,
-  runEnemyTurn,
   type BodyPart,
   type Unit,
-} from "../game/combat";
+} from '../game/combat'
+import { runEnemyTurn } from '../game/enemy-ai';
 import type { ArenaConfig } from "../game/content";
 import { hydrateArenaUnits, syncEquipmentInstances } from "../game/equipment-content";
 import { assignQuickSlot, createInventory } from "../game/inventory";

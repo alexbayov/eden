@@ -1,4 +1,5 @@
-import { advanceStatuses, runEnemyTurn, startTurn, type Unit } from './combat'
+import { advanceStatuses, startTurn, type Unit } from './combat'
+import { runEnemyTurn } from './enemy-ai'
 import { missionDefeat, missionVictory, type CampaignMission, type CampaignState } from './campaign'
 import type { ArenaConfig } from './content'
 import { advanceObjectiveTurn, evaluateObjective, initialObjectiveState, type ObjectiveParams } from './objective'

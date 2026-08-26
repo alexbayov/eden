@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { performCombatAttack, runEnemyTurn, type Unit, type WeaponState } from './combat'
+import {
+  performCombatAttack,
+  type Unit,
+  type WeaponState,
+} from './combat'
+import { runEnemyTurn } from './enemy-ai'
 import { applyEnemyArchetype, createWeaponState, hydrateArenaUnits, parseEquipmentCatalog } from './equipment-content'
 import { createInventory } from './inventory'
 
