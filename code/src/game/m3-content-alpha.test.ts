@@ -69,12 +69,23 @@ describe("M3-B near-perimeter content alpha", () => {
          new Set(items.ok ? items.value.map((item) => item.id) : []),
       ).ok,
     ).toBe(true);
-    expect(
-      maps.map(
-        (map) =>
-          map.units.filter((unit) => unit.team === "enemy")[0]?.archetypeId,
-      ),
-    ).toEqual(["lone-shooter", "wild-rusher", "sun-defender"]);
+    /*
+     * W6-06 — the roster grew from three archetypes to six, and each shipped map's first enemy now carries one
+     * of the three new ones. Asserted against the *catalog* rather than a hardcoded list, so extending the
+     * roster again does not require editing this line: what matters is that every placement names an archetype
+     * that actually exists, which is the reference this test is really about.
+     */
+    const archetypeIds = new Set(parseEquipmentCatalog(shipped("equipment")).enemies.map((entry) => entry.id));
+    const placed = maps.map(
+      (map) => map.units.filter((unit) => unit.team === "enemy")[0]?.archetypeId,
+    );
+    expect(placed).toHaveLength(3);
+    for (const archetypeId of placed) {
+      expect(archetypeId, "every map places a real archetype").toBeDefined();
+      expect(archetypeIds.has(archetypeId!), `unknown archetype ${archetypeId}`).toBe(true);
+    }
+    /* And the three maps use three *different* archetypes, so the zone is not one enemy repeated. */
+    expect(new Set(placed).size).toBe(3);
   });
 
   it("rejects invalid mission zone, arena, reward, and order references before boot", () => {
