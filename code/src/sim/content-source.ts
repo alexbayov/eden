@@ -14,8 +14,15 @@
  *     `ContentLoadError`, not a bespoke simulator error;
  *   - the arena set comes from `arena-manifest.json` only. A map file that exists in
  *     `public/config/` but is absent from the manifest is not loaded and cannot be simulated,
- *     which is what "only arena-manifest live maps" means. `arena.json`, `mission.json`,
- *     `arena-relay.json`, `arena-yard.json` and `arena-checkpoint.json` are such orphans today.
+ *     which is what "only arena-manifest live maps" means.
+ *
+ *     **Updated 26 August 2026.** Four of the five files this note used to list were deleted:
+ *     `arena-relay.json`, `arena-yard.json` and `arena-checkpoint.json` carried the *same ids* as the
+ *     live maps with different data, so editing one had no effect on the game and every chance of
+ *     wasting an afternoon; `mission.json` was read by nobody at all. `arena.json` (`dusty-perimeter`)
+ *     **remains and is not an orphan** — it is a live test fixture for `boot-view.test.ts`,
+ *     `m3-shipped.test.ts` and `m3-content-alpha.test.ts`, which read it straight off disk rather than
+ *     through the manifest. Deleting it fails four tests; that is how this correction was found.
  *
  * The fetch shim is process-local and installed only while loading.
  */
