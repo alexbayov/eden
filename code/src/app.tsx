@@ -22,6 +22,12 @@ import {
 } from "./game/base";
 import { buildBasePanel } from "./game/base-view";
 import {
+  buildBreakdownView,
+  buildCritView,
+  postureOptions,
+  statusViews,
+} from "./game/combat-readout";
+import {
   canRetreatFromMission,
   missionDefeat,
   missionVictory,
@@ -100,7 +106,6 @@ import {
   clearMalfunction,
   defensiveCover,
   findReachable,
-  getAttack,
   hasLineOfSight,
   isAlive,
   performCombatAttack,
@@ -561,6 +566,18 @@ export function App() {
           ),
         )
       : null;
+  /**
+   * W6-03 — the three readouts the model already produced and the screen used to discard.
+   *
+   * `breakdown` above carries eleven fields and only `final`/`damage` were rendered; the crit chance had no
+   * UI at all; statuses appeared solely on the Phaser canvas as raw English keys with their turn counters
+   * dropped; posture prices were discoverable only by clicking. All three are view models rather than JSX so
+   * the test can compare the displayed terms against the model's own total (criterion 2).
+   */
+  const breakdownView = breakdown ? buildBreakdownView(breakdown, part) : null;
+  const critView = hero && target ? buildCritView(hero, part) : null;
+  const heroStatuses = statusViews(hero?.statuses);
+  const postures = postureOptions(hero, phase);
   const sceneState: SceneState = {
     units,
     selectedId: "hero",
@@ -634,11 +651,20 @@ export function App() {
     )
       return;
   }
+  /**
+   * W6-03 — changes posture, and explains a refusal in the terms the button already showed.
+   *
+   * Previously both refusals produced «Смена позы сейчас недоступна.», so a player could not tell a
+   * permanent rule (standing→prone is forbidden; crouch first) from a temporary shortage of two AP. The
+   * message now comes from `postureOptions`, which is the same source the button's own label reads — so the
+   * control and the handler cannot disagree about why.
+   */
   function changePosture(next: Posture) {
     if (!hero || phase !== "player") return;
+    const option = postures.find((entry) => entry.id === next);
     const cost = postureChangeCost(hero.posture, next);
-    if (cost === null || hero.ap < cost)
-      return setLog("Смена позы сейчас недоступна.");
+    if (!option?.available || cost === null || hero.ap < cost)
+      return setLog(option?.reason || "Смена позы сейчас недоступна.");
      if (!persist(
        units.map((unit) =>
          unit.id === hero.id
@@ -646,7 +672,7 @@ export function App() {
            : unit,
        ),
      )) return;
-     setLog(`Поза: ${POSTURES[next].label}.`);
+     setLog(`Поза: ${POSTURES[next].label} (−${cost} ОЧ).`);
   }
   function attack() {
     if (
@@ -2129,16 +2155,56 @@ const arenas = await loadArenaCatalog(
               ))}
             </div>
             <small>{hero?.ap ?? 0}/10 ОЧ</small>
-            <div class="actions">
-               {(Object.keys(POSTURES) as Posture[]).map((id) => (
-                 <button
-                   key={id}
-                   class={hero?.posture === id ? "active" : ""}
-                  onClick={() => changePosture(id)}
+            {/*
+              W6-03 — posture with its price stated before the press (criterion 4).
+
+              `aria-disabled` rather than `disabled` so a keyboard or screen-reader user can still reach the
+              control and hear *why* it is unavailable — which matters most for standing→prone, a permanent
+              rule rather than a temporary AP shortage. The two refusals were previously one sentence.
+            */}
+            <div class="actions postures" role="group" aria-label="Поза">
+              {postures.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  data-posture={option.id}
+                  data-posture-cost={option.cost ?? ""}
+                  aria-disabled={!option.available}
+                  aria-pressed={option.current}
+                  aria-label={option.ariaLabel}
+                  class={option.current ? "active" : option.available ? "" : "unavailable"}
+                  onClick={() => changePosture(option.id)}
                 >
-                  {POSTURES[id].label}
+                  {option.label}
+                  <small>
+                    {option.summary}
+                    {option.available || option.current ? "" : ` · ${option.reason}`}
+                  </small>
                 </button>
               ))}
+            </div>
+            {/*
+              W6-03 — active statuses with their remaining duration (criterion 3).
+
+              `statusLabels` in `combat.ts` existed and was called from nowhere, and it discarded the turn
+              counter anyway. Until now the only status display was raw English keys on the canvas at 9px.
+            */}
+            <div class="statuses" data-status-count={heroStatuses.length}>
+              <span class="label">СТАТУСЫ</span>
+              {heroStatuses.length === 0 ? (
+                <p class="status-empty">Активных статусов нет.</p>
+              ) : (
+                <ul>
+                  {heroStatuses.map((status) => (
+                    <li key={status.id} data-status={status.id} data-status-turns={status.turnsLeft}>
+                      <b>{status.label}</b>
+                      <span>
+                        {status.effect} · осталось ходов: {status.turnsLeft}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
           {/* Target selection lives only in the tactical panel's «Видимые цели» group. */}
@@ -2157,11 +2223,70 @@ const arenas = await loadArenaCatalog(
                 </button>
               ))}
             </div>
-            {breakdown && (
-              <div class="breakdown">
-                <strong>ШАНС ПОПАДАНИЯ {breakdown.final}%</strong>
+            {/*
+              W6-03 — the full breakdown (criteria 1, 2 and 5).
+
+              Every one of the eight addends is listed with a label and a sign, including the zeroes: "cover
+              contributes nothing here" is information, and hiding zero rows would change the list's shape
+              between shots so a player could never learn what the terms are. Rendered as a table rather than
+              a tooltip because doc 14 requires the information without hover.
+
+              The total shown is the *model's* `final`, never the sum of the rows. When the 5..95 clamp is
+              active the two genuinely differ, and the clamp note says so — otherwise the arithmetic would
+              read as a bug in the game rather than as a floor.
+            */}
+            {breakdownView && (
+              <div class="breakdown" data-hit-final={breakdownView.final} data-hit-raw={breakdownView.rawTotal}>
+                <strong>ШАНС ПОПАДАНИЯ {breakdownView.final}%</strong>
+                <table class="breakdown-terms">
+                  <caption class="sr-only">Слагаемые шанса попадания</caption>
+                  <tbody>
+                    {breakdownView.rows.map((row) => (
+                      <tr key={row.id} data-term={row.id}>
+                        <th scope="row">{row.label}</th>
+                        <td data-term-value={row.value}>{row.display}</td>
+                      </tr>
+                    ))}
+                    <tr class="breakdown-total">
+                      <th scope="row">Итог</th>
+                      <td>{breakdownView.final}%</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {breakdownView.clamp && (
+                  <p class="breakdown-clamp" data-clamp={breakdownView.clamp}>
+                    {breakdownView.clamp === "min"
+                      ? `Сумма ${breakdownView.rawTotal} ниже минимума: шанс не опускается ниже 5%.`
+                      : `Сумма ${breakdownView.rawTotal} выше максимума: шанс не превышает 95%.`}
+                  </p>
+                )}
+                {critView && (
+                  <>
+                    <strong class="crit-chance" data-crit-final={critView.final}>
+                      ШАНС КРИТА {critView.final}%
+                    </strong>
+                    <table class="breakdown-terms crit-terms">
+                      <caption class="sr-only">Слагаемые шанса критического попадания</caption>
+                      <tbody>
+                        {critView.rows.map((row) => (
+                          <tr key={row.id} data-crit-term={row.id}>
+                            <th scope="row">{row.label}</th>
+                            <td data-term-value={row.value}>{row.display}</td>
+                          </tr>
+                        ))}
+                        <tr class="breakdown-total">
+                          <th scope="row">Итог</th>
+                          <td>{critView.final}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <small class="crit-effect">
+                      Крит: урон ×{critView.multiplier} · {breakdownView.effect}
+                    </small>
+                  </>
+                )}
                 <small>
-                  Урон {breakdown.damage} · {getAttack(part).effect}
+                  {breakdownView.partLabel}: урон {breakdownView.damage} · {breakdownView.apCost} ОЧ
                 </small>
               </div>
             )}

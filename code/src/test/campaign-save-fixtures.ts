@@ -66,6 +66,14 @@ export interface SaveFixtureOptions {
   heroAt?: { x: number; y: number };
   heroHp?: number;
   heroAp?: number;
+  /**
+   * Active hero statuses with their turn counters, for the W6-03 readout specs.
+   *
+   * Written as the model writes them: a counter of `n` means `n` turns remain, and `advanceStatuses` drops
+   * an entry once it would reach zero. `validateSave` checks the shape, so a fixture cannot describe a
+   * status the runtime could not hold.
+   */
+  heroStatuses?: Readonly<Record<string, number>>;
   /** Enemy HP overrides keyed by unit id. */
   enemyHp?: Record<string, number>;
   /** Weapon magazine/reserve override, for the ammo-starved retreat case. */
@@ -242,6 +250,7 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
         ...(options.heroAt ?? {}),
         hp: options.heroHp ?? unit.hp,
         ap: options.heroAp ?? unit.ap,
+        ...(options.heroStatuses ? { statuses: { ...options.heroStatuses } } : {}),
         ...(weaponState ? { weaponState } : {}),
       };
     }

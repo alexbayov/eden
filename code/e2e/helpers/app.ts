@@ -154,6 +154,9 @@ export interface PersistedSave {
     /** Read by the W5-03 specs: a quick-slot use must move reserve ammo/durability, not the magazine. */
     weaponState?: { weaponInstanceId: string; magazine: number; reserveAmmo: number; durability: number };
     armor?: { armorInstanceId: string; durability: number };
+    /** W6-03: posture and statuses are what the combat readout is about. */
+    posture?: "stand" | "crouch" | "prone";
+    statuses?: Record<string, number>;
   }>;
   campaign: {
     screen: string;

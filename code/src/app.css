@@ -316,6 +316,66 @@
   border-top: 1px solid #49616c;
   color: #ffdc83;
 }
+/*
+  W6-03 — the breakdown terms, statuses and posture prices.
+
+  A plain table rather than a tooltip: doc 14 requires the information without hover, so it is always in
+  the flow. `width: 100%` with a right-aligned value column keeps the numbers in a readable column at
+  360px without any fixed sizing that could overflow.
+*/
+.breakdown-terms {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+}
+.breakdown-terms th,
+.breakdown-terms td {
+  padding: 1px 0;
+  font-weight: 400;
+  text-align: left;
+}
+.breakdown-terms td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #e8f2f3;
+}
+.breakdown-terms tr.breakdown-total th,
+.breakdown-terms tr.breakdown-total td {
+  padding-top: 4px;
+  border-top: 1px solid #49616c;
+  color: #ffdc83;
+}
+.breakdown-clamp {
+  margin: 6px 0 0;
+  color: #ffb08a;
+}
+.crit-effect {
+  display: block;
+  margin-top: 4px;
+}
+.statuses {
+  margin-top: 10px;
+}
+.statuses ul {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.statuses li {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  font: 12px ui-monospace, monospace;
+  color: #b5c9d0;
+}
+.statuses li b {
+  color: #ffb08a;
+}
+.status-empty {
+  margin: 4px 0 0;
+  font: 12px ui-monospace, monospace;
+  color: #7f97a1;
+}
 .fire,
 .end,
 .overwatch {
