@@ -69,6 +69,24 @@ export const WIN_RATE_CORRIDORS: Readonly<Record<string, Corridor>> = {
 export const CHAIN_TOTAL_WIN_CORRIDOR: Corridor = { min: 0.55, max: 0.85 }
 
 /**
+ * W6-05 criterion 4 — the corridor the *measured* jam rate has to fall in.
+ *
+ * `malfunctionOccurs` jams at **15%** per shot for a `makeshift` weapon and **8%** for one below 30% durability.
+ * Nothing checked that: `grep malfunction src/sim/bounds.ts` returned nothing before this ticket, so the two
+ * documented numbers rested entirely on reading the code.
+ *
+ * Centred on 15% rather than a blend of the two, because the shipped hero carries the makeshift `hornet` for the
+ * whole zone and `malfunctionEligible` short-circuits on `makeshift` — so essentially every recorded shot is
+ * drawn from the 15% branch. The width is sampling tolerance, not a design range: at ~2600 shots per chain run
+ * the standard error is well under a point, and ±4 points leaves room for the durability branch contributing a
+ * few 8% shots late in a pass without turning the bound into a rubber stamp.
+ *
+ * A rate outside this corridor means one of three things, all worth failing for: the constants changed, the
+ * eligibility rule changed, or the shipped loadout stopped being makeshift.
+ */
+export const MALFUNCTION_RATE_CORRIDOR: Corridor = { min: 0.11, max: 0.19 }
+
+/**
  * Ceiling on `ammoEmptyRate`. A battle ends `ammo-empty` when the hero has no round chambered, no
  * reserve and nothing to unjam: the game's only exit is a retreat with no reward, so it is a
  * soft-lock, not a defeat. v1 treats it as an accident that may happen but must not be a strategy —
@@ -154,6 +172,15 @@ export function evaluateBalanceBounds(report: SimulationReport): BoundViolation[
   }
 
   violations.push(corridorViolation('win-rate:total', 'суммарный win rate прохода', report.total.winRate, CHAIN_TOTAL_WIN_CORRIDOR))
+  /* W6-05 criterion 4: the jam rate the simulator actually observes, against the documented 15%/8%. */
+  violations.push(
+    corridorViolation(
+      'malfunction-rate:total',
+      'частота осечек на выстрел',
+      report.total.malfunctionRate,
+      MALFUNCTION_RATE_CORRIDOR,
+    ),
+  )
   violations.push(ceilingViolation('ammo-empty:total', 'суммарная доля боёв без патронов', report.total.ammoEmptyRate, MAX_AMMO_EMPTY_RATE))
   violations.push(
     floorViolation('economy:bandage-balance', 'баланс бинтов за проход', report.economy.bandageBalancePerPassMean, MIN_BANDAGE_BALANCE_PER_PASS),

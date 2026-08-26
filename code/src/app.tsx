@@ -28,6 +28,7 @@ import {
   statusViews,
 } from "./game/combat-readout";
 import { OVERWATCH_ACTIVATION_AP, buildOverwatchView } from "./game/combat-overwatch";
+import { missionReadiness, restockAmmo } from "./game/combat-logistics";
 import {
   canRetreatFromMission,
   missionDefeat,
@@ -580,6 +581,19 @@ export function App() {
   const heroStatuses = statusViews(hero?.statuses);
   const postures = postureOptions(hero, phase);
   /**
+   * W6-05 — the pre-mission gear check (criteria 2 and 5).
+   *
+   * Reads the live weapon off the hero rather than the inventory instance, because that is what the mission
+   * actually starts with: `hydrateArenaUnits` carries magazine, reserve and durability forward from the
+   * persistent instance. Reports rather than blocks — leaving with a nearly-broken weapon is a legitimate
+   * choice; leaving *without knowing* was the defect.
+   */
+  const readiness = missionReadiness(
+    hero,
+    save?.inventory.equipment.find((entry) => entry.instanceId === hero?.armor?.armorInstanceId),
+  );
+
+  /**
    * W6-04 — the Overwatch readout.
    *
    * `reservedAp` appeared exactly once in this file before now, on the write at activation; the −15 reaction
@@ -1084,6 +1098,43 @@ export function App() {
     rewardClaimInFlight.current = false;
     setRewardClaimLocked(false);
    }
+  /**
+   * W6-05 — moves one stashed ammunition bundle into a weapon's reserve (criterion 1).
+   *
+   * The transaction that did not exist: ammunition was craftable but usable only mid-mission through a quick
+   * slot, so mission-start ammo was whatever survived the last fight and an empty reserve was a soft lock whose
+   * only exit was a rewardless retreat.
+   *
+   * Bundles rather than raw resources on purpose — metal already buys bundles through `recipes.json`, and a
+   * second price for the same goods would make the recipes pointless. One bundle per press because the reserve
+   * has no cap in the data model, so "fill it up" would silently decide how much ammunition a player should
+   * carry.
+   */
+  function restock(instanceId: string) {
+    if (!catalog || !inventory || !base || !hero) return;
+    const result = restockAmmo(inventory, instanceId, catalog.itemEffects);
+    if (!result.ok)
+      return setLog(
+        result.reason === "no-bundles"
+          ? "В stash нет подходящих боеприпасов: скрафтите связку на верстаке."
+          : result.reason === "no-matching-ammo"
+            ? "Для этого калибра в каталоге нет связки."
+            : result.reason === "not-a-weapon"
+              ? "Пополнять боеприпасы можно только для оружия."
+              : "Экземпляр экипировки не найден.",
+      );
+    /* The unit is the authoritative side for anything a live encounter holds, so the hero's reserve moves with
+       the instance — otherwise `syncEquipmentInstances` would copy the old value straight back over it. */
+    const nextUnits = units.map((unit) =>
+      unit.id === hero.id && unit.weaponState?.weaponInstanceId === instanceId
+        ? { ...unit, weaponState: { ...unit.weaponState, reserveAmmo: result.value.equipment.reserveAmmo ?? 0 } }
+        : unit,
+    );
+    if (!persist(nextUnits, phase, campaign, result.value.inventory, base)) return;
+    setLog(
+      `Боеприпасы пополнены: ${itemLabel(result.value.itemId, catalog)} → +${result.value.roundsAdded} в резерв.`,
+    );
+  }
   function repair(targetId: string) {
     if (!inventory || !base || !hero) return;
     const result = repairGear(inventory, targetId);
@@ -1633,6 +1684,29 @@ const arenas = await loadArenaCatalog(
                 {equipment.map((entry) => (
                   <p key={entry.instanceId}>
                     {itemLabel(entry.itemId, catalog)}: <b>{equipmentDurabilityPercent(entry)}% durability</b>
+                    {entry.magazineSize !== undefined && (
+                      <>
+                        {" · резерв "}
+                        <b>{entry.reserveAmmo ?? 0}</b>
+                        {" · "}
+                        {/*
+                          W6-05 — the restock transaction (criterion 1).
+
+                          Ammunition was craftable but usable only mid-mission through a quick slot, so an empty
+                          reserve was a soft lock whose only exit was a rewardless retreat. One bundle per press:
+                          the reserve has no cap in the data model, and "fill it up" would silently decide how
+                          much a player should carry.
+                        */}
+                        <button
+                          type="button"
+                          class="restock"
+                          data-restock={entry.instanceId}
+                          onClick={() => restock(entry.instanceId)}
+                        >
+                          ПОПОЛНИТЬ БОЕПРИПАСЫ
+                        </button>
+                      </>
+                    )}
                   </p>
                 ))}
                 {/*
@@ -1819,6 +1893,34 @@ const arenas = await loadArenaCatalog(
           )}
           <div class="card">
             <span class="label">MISSION SELECT</span>
+            {/*
+              W6-05 — the pre-mission gear check (criteria 2 and 5).
+
+              Before this a player could start an encounter with an empty magazine and empty reserve with no
+              warning at all, and the only escape was a rewardless retreat. Durability was shown as a percentage
+              but nothing marked the 30% line where `malfunctionEligible` starts jamming — and the shipped starter
+              weapon is `makeshift`, so it jams at 15% per shot even at full durability.
+
+              It reports and does not block: leaving with worn gear is a legitimate choice, leaving without knowing
+              was the defect. `role="status"` rather than an alert — it is a standing readout, not an interruption.
+            */}
+            <div
+              class="readiness"
+              data-readiness={readiness.level}
+              data-readiness-issues={readiness.issues.length}
+              role="status"
+            >
+              <b>{readiness.summary}</b>
+              {readiness.issues.length > 0 && (
+                <ul>
+                  {readiness.issues.map((issue) => (
+                    <li key={issue.id} data-issue={issue.id} data-issue-level={issue.level}>
+                      <b>{issue.text}</b> <span>{issue.advice}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <h2>Ближняя окраина</h2>
             <p>Все encounter этой зоны и их текущая доступность сохраняются локально.</p>
             <div class="mission-list">
