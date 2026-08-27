@@ -15,9 +15,10 @@
     "test:e2e:headed": "npm run build && playwright test --headed",
     "simulate:balance": "tsx src/sim/cli.ts --scope balance",
     "simulate:economy": "tsx src/sim/cli.ts --scope economy --mode chain",
-    "verify": "npm run lint && npm run typecheck && npm run validate:content && npm run test && npm run build && npm run analyze:budget",
+    "verify": "npm run lint && npm run typecheck && npm run validate:content && npm run test && npm run build && npm run analyze:budget && npm run analyze:release",
     "validate:content": "tsx src/tools/validate-content.ts",
-    "tokens:build": "tsx src/tools/build-tokens.ts"
+    "tokens:build": "tsx src/tools/build-tokens.ts",
+    "analyze:release": "node scripts/check-release-artifact.mjs"
   },
   "engines": {
     "node": ">=22"

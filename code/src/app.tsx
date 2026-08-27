@@ -211,6 +211,15 @@ const LOADING_CAMPAIGN: CampaignState = {
   claimedRewards: [],
 };
 const LOADING_CHARACTER: CharacterState = { level: 1, xp: 0, unspentSkillPoints: 0 };
+/**
+ * W10-04 — the shipped version, stamped by Vite from `package.json` at build time.
+ *
+ * Declared through `__APP_VERSION__` rather than imported from `package.json` so the bundle carries the number and not
+ * the manifest. `'dev'` is the fallback for a context with no define (a unit test importing this module directly), which
+ * keeps the value a string in every environment instead of `undefined` reaching the DOM.
+ */
+const APP_VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
+
 
 const saveCatalogFor = (catalog: Catalog) =>
   campaignCatalogFor({
@@ -1734,7 +1743,8 @@ const arenas = await loadArenaCatalog(
         </p>
         <header>
           <div>
-            <span class="eyebrow">EDEN // M2 VERTICAL SLICE</span>
+            {/* W10-04 criterion 5: the shipped version is visible to the player and stamped from `package.json`. */}
+            <span class="eyebrow">EDEN // M2 VERTICAL SLICE <span class="app-version" data-app-version={APP_VERSION}>v{APP_VERSION}</span></span>
             <h1>{mission.name}</h1>
           </div>
           <div class="turn">
@@ -2324,7 +2334,7 @@ const arenas = await loadArenaCatalog(
       </p>
       <header>
         <div>
-          <span class="eyebrow">EDEN // COMBAT</span>
+          <span class="eyebrow">EDEN // COMBAT <span class="app-version" data-app-version={APP_VERSION}>v{APP_VERSION}</span></span>
           <h1>{mission.name}</h1>
         </div>
         <div class="turn">

@@ -27,6 +27,11 @@
   letter-spacing: 0.18em;
   color: var(--color-accent-slate);
 }
+/* W10-04: the shipped version, dimmer than the eyebrow it sits in — informative, not a headline. */
+.app-version {
+  color: var(--color-text-faint);
+  letter-spacing: 0.1em;
+}
 .game-shell h1 {
   margin: 6px 0 0;
   font-size: 30px;

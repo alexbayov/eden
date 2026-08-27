@@ -1,9 +1,44 @@
+import { readFileSync, rmSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import preact from '@preact/preset-vite'
 
+/**
+ * W10-04 — the app version, stamped from `package.json` at build time.
+ *
+ * Read here rather than imported from the app so the shipped bundle never contains the rest of `package.json`, and so
+ * there is one source for the number (criterion 5: the version is visible in the UI *and* in the artefact).
+ */
+const appVersion = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string })
+  .version
+
+/**
+ * W10-04 criterion 4 — test fixtures must not reach the release artefact.
+ *
+ * `public/config/arena.json` (`dusty-perimeter`) is read by **no** shipped code path: it is absent from
+ * `arena-manifest.json`, and `loadArenaContent` has no caller outside tests. But it is not dead either — five tests
+ * load it, so deleting it is wrong (verified: removing the file fails `boot-view`, `m3-shipped` and `m3-content-alpha`).
+ * It is therefore kept in the repository and excluded from `dist/`, which is the only way both facts stay true.
+ */
+const TEST_ONLY_PUBLIC_FILES = ['config/arena.json']
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [preact()],
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
+  plugins: [
+    preact(),
+    {
+      name: 'eden-exclude-test-fixtures',
+      apply: 'build',
+      /* `publicDir` files are copied straight to the output and never enter the bundle graph, so they are removed from
+         `dist/` once the write has finished. Missing files are ignored: the hook must not fail a build because a fixture
+         was legitimately deleted. */
+      closeBundle() {
+        for (const name of TEST_ONLY_PUBLIC_FILES)
+          rmSync(fileURLToPath(new URL(`./dist/${name}`, import.meta.url)), { force: true })
+      },
+    },
+  ],
   test: {
     /**
      * `e2e/` is owned by Playwright (W1-01). Vitest's default include pattern
