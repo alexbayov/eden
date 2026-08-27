@@ -37,6 +37,7 @@ import {
   type Unit,
 } from '../game/combat'
 import type { ArenaConfig } from '../game/content'
+import type { ObjectiveParams, ObjectiveState } from '../game/objective'
 
 export interface PolicyContext {
   hero: Unit
@@ -50,12 +51,26 @@ export interface PolicyContext {
   coverFor: (target: Unit) => CoverType
   /** Cells the hero can reach with current AP. Memoised by the caller; safe to call repeatedly. */
   reachable: () => Reachability
+  /**
+   * The encounter's objective and its live state.
+   *
+   * Needed because two of the four objective types cannot be played by fighting at all: `retrieve` is finished by
+   * standing on a cell, taking an item and walking to an exit, and `escape` by reaching an exit. A policy without
+   * this could only ever shoot, which is why the first `retrieve` encounter measured a 0% win rate over 103 runs
+   * while being perfectly winnable — the simulator had no way to express the winning line.
+   *
+   * Optional so that every existing caller and fixture keeps compiling; when absent the policies behave exactly as
+   * they did before, which is what keeps the `eliminate`/`secure` corridors comparable.
+   */
+  objective?: { params: ObjectiveParams; state: ObjectiveState }
 }
 
 export type PolicyDecision =
   | { kind: 'attack'; target: Unit; part: BodyPart }
   | { kind: 'reload' }
   | { kind: 'move'; to: Point; cost: number }
+  /** Take the `retrieve` objective's item; only legal on its cell, and the runtime re-checks that. */
+  | { kind: 'pick-up' }
   | { kind: 'pass' }
 
 export interface Policy {
@@ -144,13 +159,102 @@ const nearestEnemy = (context: PolicyContext): Unit | null =>
       gridDistance(context.hero, left) - gridDistance(context.hero, right) || left.id.localeCompare(right.id),
   )[0] ?? null
 
-/** Shared skeleton: reposition (optional) -> fire -> reload -> approach -> pass. */
+/** A step toward `goal`, or the goal itself when it is reachable this turn. Cheapest, then stable by cell. */
+function stepToward(context: PolicyContext, goal: Point): { to: Point; cost: number } | null {
+  const { hero } = context
+  const reach = context.reachable()
+  const here = cellKey(hero.x, hero.y)
+  const direct = reach.costs.get(cellKey(goal.x, goal.y))
+  if (direct !== undefined && direct >= 1 && direct <= hero.ap) return { to: goal, cost: direct }
+  const current = gridDistance(hero, goal)
+  const options = [...reach.costs.keys()]
+    .filter((key) => key !== here)
+    .map((key) => ({ point: reach.paths.get(key)!.at(-1)!, cost: reach.costs.get(key)! }))
+    .filter((entry) => entry.cost <= hero.ap && gridDistance(entry.point, goal) < current)
+    .sort(
+      (left, right) =>
+        gridDistance(left.point, goal) - gridDistance(right.point, goal) ||
+        left.cost - right.cost ||
+        cellKey(left.point.x, left.point.y).localeCompare(cellKey(right.point.x, right.point.y)),
+    )
+  return options[0] ? { to: options[0].point, cost: options[0].cost } : null
+}
+
+/**
+ * The objective's own winning line, for the two types that combat cannot finish.
+ *
+ * Returns `null` for `eliminate` and `secure`, so those encounters keep taking exactly the decisions they took
+ * before this existed — that is deliberate and load-bearing, because their win-rate corridors were measured with the
+ * old behaviour and a "smarter" hero would have invalidated them without any balance change.
+ *
+ * For `retrieve`/`escape` the objective takes priority over shooting. That is the honest reading of the mission: the
+ * player is told to carry something out or to leave, and a hero who stops to win a firefight they were not asked to
+ * win is measuring an `eliminate`. Enemies still shoot back throughout, so the cost of ignoring them is paid in the
+ * damage-taken and win-rate numbers rather than assumed away.
+ */
+function objectiveMove(context: PolicyContext): PolicyDecision | null {
+  const objective = context.objective
+  if (!objective) return null
+  const { hero } = context
+  const { params, state } = objective
+  if (params.kind === 'escape') {
+    if (hero.x === params.exit.x && hero.y === params.exit.y) return { kind: 'pass' }
+    if (!canMove(hero) || hero.ap < 1) return null
+    const step = stepToward(context, params.exit)
+    return step ? { kind: 'move', ...step } : null
+  }
+  if (params.kind === 'secure') {
+    /*
+     * Only once the board is cleared, and only to step onto the point.
+     *
+     * A `secure` mission is finished by *standing* somewhere, and nothing in the policy layer ever walked there:
+     * `relay-station` passes only because one of its enemies happens to stand inside the hold zone, so "approach the
+     * nearest enemy" coincides with "enter the zone". On a map where it does not coincide, the simulator killed
+     * everything, kept the hero at full HP and then idled to the turn limit — measured as 31.9% `turn-limit` and a
+     * 0% win rate on a mission a player finishes by taking four steps.
+     *
+     * Deliberately gated on there being **no living enemy left**, rather than pursuing the point under fire. That is
+     * the narrow case where the objective is achievable at zero risk and failing it is unambiguously a simulator
+     * defect. It also cannot alter any battle in which an enemy is still alive, which is what keeps the existing
+     * `relay-station` corridor a comparable measurement instead of a number produced by a different policy.
+     */
+    if (context.enemies.length > 0) return null
+    const inside = Math.max(Math.abs(hero.x - params.zone.x), Math.abs(hero.y - params.zone.y)) <= params.radius
+    if (inside) return null
+    if (!canMove(hero) || hero.ap < 1) return null
+    const step = stepToward(context, params.zone)
+    return step ? { kind: 'move', ...step } : null
+  }
+  if (params.kind === 'retrieve') {
+    if (!state.carrying) {
+      if (hero.x === params.at.x && hero.y === params.at.y) return { kind: 'pick-up' }
+      if (!canMove(hero) || hero.ap < 1) return null
+      const step = stepToward(context, params.at)
+      return step ? { kind: 'move', ...step } : null
+    }
+    if (hero.x === params.exit.x && hero.y === params.exit.y) return { kind: 'pass' }
+    if (!canMove(hero) || hero.ap < 1) return null
+    const step = stepToward(context, params.exit)
+    return step ? { kind: 'move', ...step } : null
+  }
+  return null
+}
+
+/**
+ * Shared skeleton: pursue a `retrieve`/`escape` objective -> reposition (optional) -> fire -> reload -> approach ->
+ * pass.
+ *
+ * The objective step is first and returns `null` for `eliminate`/`secure`, so those encounters fall through to the
+ * exact sequence this function has always run.
+ */
 function shooter(id: PolicyId, description: string, part: BodyPart, useCover: boolean): Policy {
   return {
     id,
     description,
     decide(context) {
       const { hero } = context
+      const objectiveStep = objectiveMove(context)
+      if (objectiveStep) return objectiveStep
       const target = pickTarget(context)
       if (target) {
         const firePart = canFire(hero, part) ? part : part !== 'torso' && canFire(hero, 'torso') ? 'torso' : null

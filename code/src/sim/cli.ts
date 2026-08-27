@@ -47,7 +47,7 @@ import { simulateBattle, type BattleResult } from './battle'
 import type { MissionDefinition } from '../game/campaign-content'
 import type { ObjectiveResolution } from '../game/session'
 import { loadSimulationContent, type SimulationContent } from './content-source'
-import { missionStart, orderedMissions, progressTo, resolveVictory, campaignStart, type CampaignProgress } from './mission-save'
+import { campaignMissionsFor, campaignStartReserve, missionStart, orderedMissions, progressTo, resolveVictory, restockBetweenEncounters, campaignStart, type CampaignProgress } from './mission-save'
 import { POLICY_IDS, policyById, type Policy } from './policies'
 import { buildReport, renderJson, renderMarkdown, type ArenaResults, type RunConfig, type SimulationMode, type SimulationReport } from './report'
 import { deriveSeed } from './seed'
@@ -86,6 +86,14 @@ export interface CliOptions extends RunConfig {
   commit: string | null
   /** Report file stem discriminator, e.g. `balance` or `economy`. */
   scope: string
+  /**
+   * Whether a chain pass spends stashed ammunition bundles between encounters, as a base visit does.
+   *
+   * Off by default so every previously published number stays reproducible with the same command. It only ever
+   * *adds* the base visit the game already offers, and it cannot create ammunition the reward catalog did not grant.
+   * Ignored in `isolated` mode, where each encounter already starts from campaign-start gear.
+   */
+  restock: boolean
   /** When false, only stdout is produced. */
   write: boolean
   quiet: boolean
@@ -128,6 +136,7 @@ export function parseArgs(argv: readonly string[], defaults: Partial<CliOptions>
     date: new Date().toISOString().slice(0, 10),
     commit: null,
     scope: 'balance',
+    restock: false,
     write: true,
     quiet: false,
     ...defaults,
@@ -163,6 +172,9 @@ export function parseArgs(argv: readonly string[], defaults: Partial<CliOptions>
         options.mode = value
         break
       }
+      case '--restock':
+        options.restock = true
+        break
       case '--turn-limit':
         options.turnLimit = numeric(next(), '--turn-limit', 1)
         break
@@ -260,6 +272,8 @@ function runIsolated(content: SimulationContent, options: CliOptions, policy: Po
  */
 function runChain(content: SimulationContent, options: CliOptions, policy: Policy): ArenaResults[] {
   const sequence = orderedMissions(content)
+  /* Built once: it is a pure function of the content and is read on every encounter of every pass. */
+  const missions = campaignMissionsFor(content)
   const collected = new Map<string, BattleResult[]>(sequence.map((mission) => [mission.id, []]))
   for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
     let progress: CampaignProgress = campaignStart(content)
@@ -272,6 +286,7 @@ function runChain(content: SimulationContent, options: CliOptions, policy: Polic
         seed: deriveSeed(options.seed, seedLabel(options, started.arena.id), runIndex),
         turnLimit: options.turnLimit,
         objective: objectiveFor(mission),
+        missions,
       })
       collected.get(mission.id)!.push(result)
       /*
@@ -281,6 +296,9 @@ function runChain(content: SimulationContent, options: CliOptions, policy: Polic
        */
       if (result.outcome !== 'win') break
       progress = resolveVictory(content, started.progress, result.finalUnits)
+      /* The base visit the game gives the player between encounters, limited to ammunition and paid for out of
+         stashed bundles. Off by default so the historical no-restock numbers stay reproducible. */
+      if (options.restock) progress = restockBetweenEncounters(content, progress, campaignStartReserve(content))
     }
   }
   return sequence.map((mission) => ({

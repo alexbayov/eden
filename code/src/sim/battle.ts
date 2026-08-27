@@ -51,8 +51,9 @@ import {
 } from '../game/combat'
 import type { ArenaConfig } from '../game/content'
 import { nextRandom } from '../game/rng'
-import { evaluateObjective } from '../game/objective'
+import { evaluateObjective, pickUpObjective } from '../game/objective'
 import { resolveEnemyPhase, type ObjectiveResolution } from '../game/session'
+import type { CampaignMission } from '../game/campaign'
 import { syncEquipmentInstances } from '../game/equipment-content'
 import type { SaveData } from '../game/save'
 import type { Policy, PolicyContext } from './policies'
@@ -132,6 +133,11 @@ export interface BattleOptions {
    * `eliminate`.
    */
   objective: ObjectiveResolution
+  /**
+   * The campaign's mission list, carrying each zone's position. Optional: a single-encounter probe has no campaign, and
+   * `session.ts` then falls back to reconstructing a zone-blind list from the save.
+   */
+  missions?: readonly CampaignMission[]
 }
 
 const coverList = (arena: ArenaConfig): Cover[] => arena.cover.map((cover) => ({ ...cover, kind: cover.type }))
@@ -160,6 +166,8 @@ export function simulateBattle(options: BattleOptions): BattleResult {
   const { arena, policy, seed, turnLimit, objective } = options
   const cover = coverList(arena)
   let save: SaveData = { ...options.save, rngState: seed >>> 0, turn: 1, phase: 'player' }
+  /** Objective state across the battle; only a `retrieve` pick-up mutates it outside the turn clock. */
+  let objectiveState = save.objective
   const heroStart = save.units.find((unit) => unit.id === 'hero')!
   const startDurability = durabilityOf(heroStart)
   const enemyIds = save.units.filter((unit) => unit.team === 'enemy').map((unit) => unit.id)
@@ -211,15 +219,29 @@ export function simulateBattle(options: BattleOptions): BattleResult {
      * `reloadWeapon` `reloadAp` ≥ 1, a move `cost` ≥ 1, an attack `apCost` ≥ 4), so `progressAp`
      * strictly decreases. The guard makes that an enforced invariant — a future decision kind that
      * spent nothing would end the phase instead of spinning forever.
+     *
+     * Taking a `retrieve` item is the one free action, exactly as in the game (`pickUpObjective` spends no AP), so
+     * it is exempted **once** rather than by relaxing the guard: `pickUpObjective` sets `carrying` and refuses a
+     * second time, which bounds the exemption at one iteration per battle. Weakening the AP invariant instead would
+     * have removed the protection for every future action kind too.
      */
     let progressAp = Number.POSITIVE_INFINITY
+    let freeActionAvailable = true
     for (;;) {
       const hero = units.find((unit) => unit.id === 'hero')!
       if (!isAlive(hero)) break
-      if (hero.ap >= progressAp) break
-      progressAp = hero.ap
+      if (hero.ap >= progressAp && !freeActionAvailable) break
+      progressAp = Math.min(progressAp, hero.ap)
       const enemies = units.filter((unit) => unit.team === 'enemy' && isAlive(unit))
-      if (!enemies.length) break
+      /*
+       * An empty board ends the phase only for objectives that combat can finish. `retrieve` and `escape` are
+       * finished by *walking* — to a pickup cell, then to an exit — so breaking here made them unwinnable the moment
+       * the last enemy died, and equally unwinnable while enemies lived because no policy branch moved toward the
+       * goal. That is why the first shipped `retrieve` encounter measured 0% over 103 runs.
+       */
+      const objectiveNeedsMovement =
+        objective.params.kind === 'retrieve' || objective.params.kind === 'escape' || objective.params.kind === 'secure'
+      if (!enemies.length && !objectiveNeedsMovement) break
 
       const visible = enemies.filter((enemy) =>
         hasLineOfSight(hero, enemy, blockersFor(units, arena, [hero.id, enemy.id])),
@@ -242,6 +264,8 @@ export function simulateBattle(options: BattleOptions): BattleResult {
             arena.height,
             blockersFor(currentUnits, arena, [hero.id]),
           )),
+        /* Live objective state: a pick-up inside this phase must be visible to the next decision. */
+        objective: { params: objective.params, state: objectiveState },
       }
 
       // A jam blocks every shot, so clearing it is always the first useful action.
@@ -256,6 +280,22 @@ export function simulateBattle(options: BattleOptions): BattleResult {
       }
 
       const decision = policy.decide(context)
+      if (decision.kind === 'pick-up') {
+        /* `pickUpObjective` is the shipped rule and refuses off-cell or repeat pickups, so an illegal decision ends
+           the phase instead of silently granting the item. */
+        const picked = pickUpObjective({
+          params: objective.params,
+          state: objectiveState,
+          units,
+          turn: save.turn,
+          turnLimit: objective.turnLimit,
+        })
+        if (!picked) break
+        objectiveState = picked
+        /* The single free action is now spent, so the AP guard applies unconditionally from here. */
+        freeActionAvailable = false
+        continue
+      }
       if (decision.kind === 'reload') {
         const reloaded = reloadWeapon(hero)
         if (!reloaded) break
@@ -300,7 +340,8 @@ export function simulateBattle(options: BattleOptions): BattleResult {
       recordKills(units, turns)
     }
 
-    save = { ...save, units, rngState, inventory: syncEquipmentInstances(save.inventory, units) }
+    /* `objective` carries a pick-up made during this phase, so the evaluation below and the enemy phase both see it. */
+    save = { ...save, units, rngState, objective: objectiveState, inventory: syncEquipmentInstances(save.inventory, units) }
     recordKills(units, turns)
 
     const hero = units.find((unit) => unit.id === 'hero')!
@@ -349,7 +390,8 @@ export function simulateBattle(options: BattleOptions): BattleResult {
 
     // ---- enemy phase: delegated wholesale, including its roll order and rngState ---------
     const enemySnapshot: SaveData = { ...save, phase: 'enemy' }
-    const resolved = resolveEnemyPhase(enemySnapshot, arena, objective)
+    /* The real mission list, so a victory closes the right zone boundary in a multi-zone campaign. */
+    const resolved = resolveEnemyPhase(enemySnapshot, arena, objective, options.missions)
     if (resolved === enemySnapshot) {
       /* resolveEnemyPhase refuses non-mission snapshots; run the same primitives it would. */
       const fallback = { ...save, turn: save.turn + 1 }
@@ -357,6 +399,9 @@ export function simulateBattle(options: BattleOptions): BattleResult {
     } else {
       save = resolved
     }
+    /* `resolveEnemyPhase` owns the turn clock and returns the advanced objective state; read it back rather than
+       keeping a stale local, which would drop a `carrying` flag at the turn boundary. */
+    objectiveState = save.objective
     recordKills(save.units, turns)
     if (!isAlive(save.units.find((unit) => unit.id === 'hero')!)) {
       outcome = 'loss'

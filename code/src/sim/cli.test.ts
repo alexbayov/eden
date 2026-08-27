@@ -246,6 +246,7 @@ describe('simulator determinism', () => {
       'runs',
       'policy',
       'mode',
+      'restock',
       'turnLimit',
       'arenas',
       'total',
@@ -325,11 +326,23 @@ describe('report contents', () => {
     for (const arena of report.arenas) {
       const metrics = arena.metrics
       /* Outcomes partition the runs: a battle ends exactly once. */
-      expect(metrics.winRate + metrics.lossRate + metrics.ammoEmptyRate + metrics.turnLimitRate).toBeCloseTo(1, 4)
-      /* A jam resolves no projectile, so hit and miss partition the resolved shots only. */
-      expect(metrics.hitRate + metrics.missRate).toBeCloseTo(1, 4)
+      /* Counted, not summed as rates: `metrics.ts` rounds each rate to four digits, so five of them can legitimately
+         total 1.0001. `objectiveFailedRate` is the fifth outcome, reachable since zone two shipped a `turnLimit`. */
+      expect(
+        [metrics.winRate, metrics.lossRate, metrics.ammoEmptyRate, metrics.turnLimitRate, metrics.objectiveFailedRate]
+          .reduce((sum, value) => sum + Math.round(value * metrics.runs), 0),
+      ).toBe(metrics.runs)
+      /*
+       * A jam resolves no projectile, so hit and miss partition the resolved shots only — and only when a shot was
+       * fired at all. Zone two ships encounters won by *walking* (`retrieve`, `escape`), where the hero can finish
+       * without firing; asserting a partition of an empty set demanded that every mission be a firefight, which the
+       * objective runtime stopped requiring in W6-01.
+       */
+      if (metrics.resolvedShotsTotal > 0) expect(metrics.hitRate + metrics.missRate).toBeCloseTo(1, 4)
+      else expect(metrics.hitRate + metrics.missRate).toBe(0)
       expect(metrics.resolvedShotsTotal + metrics.malfunctionsTotal).toBe(metrics.shotsTotal)
-      expect(metrics.malfunctionRate).toBeCloseTo(metrics.malfunctionsTotal / metrics.shotsTotal, 4)
+      if (metrics.shotsTotal > 0) expect(metrics.malfunctionRate).toBeCloseTo(metrics.malfunctionsTotal / metrics.shotsTotal, 4)
+      else expect(metrics.malfunctionRate).toBe(0)
       for (const rate of [metrics.winRate, metrics.hitRate, metrics.critRate, metrics.killRate]) {
         expect(rate).toBeGreaterThanOrEqual(0)
         expect(rate).toBeLessThanOrEqual(1)

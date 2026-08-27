@@ -6,10 +6,12 @@
  * had a correct-looking `objective` field in `missions.json` that nothing read, so "the rule is
  * implemented" and "the game plays by the rule" were different claims.
  *
- * `retrieve` and `escape` have **no shipped missions** — the MVP zone is two `eliminate` encounters and
- * one `secure`. Rather than adding content the design has not asked for, those two types are exercised
- * by overriding `missions.json` through the harness, which is the same path the shell's own loader
- * takes. That keeps the objective *runtime* fully covered while leaving content decisions to W7.
+ * **Updated by D-03.** `retrieve` and `escape` now *do* have shipped missions — zone two «Водовод» ships one of each
+ * plus a `secure` finale — so the note that used to stand here ("no shipped missions … leaving content decisions to
+ * W7") is obsolete. These tests still drive the two types through an **overridden** `missions.json` rather than the
+ * shipped ones, and deliberately so: they pin the objective *runtime* against fixed geometry, and rebasing them onto
+ * shipped maps would make them fail whenever that content is retuned. Coverage of the shipped missions themselves is
+ * the content validator's job (`npm run validate:content`) and the two-zone E2E walkthrough's.
  *
  * LIMITATION — jsdom has no layout and no canvas, and `createCombatRuntime` is mocked. Nothing here is
  * a claim about geometry; that belongs to `e2e/viewport-geometry.spec.ts`.

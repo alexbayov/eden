@@ -33,6 +33,16 @@ export interface CombatMetrics {
   lossRate: number
   ammoEmptyRate: number
   turnLimitRate: number
+  /**
+   * Battles that ended because a timed objective's deadline passed while the hero was still alive.
+   *
+   * Reported separately from `lossRate` because it is a different event for both the player and the balance: nothing
+   * went wrong in the firefight, the mission simply ran out of turns, and the encounter is retryable with the hero
+   * intact. `BattleOutcome` has carried `objective-failed` since W6-01, but no shipped mission had a `turnLimit`
+   * until zone two, so this rate was missing and the four outcome rates could no longer sum to 1 — which is how the
+   * gap surfaced (`0.42%` unaccounted, and a `toBeCloseTo(1)` partition check failing at 1.0001).
+   */
+  objectiveFailedRate: number
   retreatRate: number
   turnsMean: number
   turnsMedian: number
@@ -105,6 +115,7 @@ export function aggregateCombat(results: readonly BattleResult[]): CombatMetrics
     lossRate: rate(outcomes('loss'), runs),
     ammoEmptyRate: rate(outcomes('ammo-empty'), runs),
     turnLimitRate: rate(outcomes('turn-limit'), runs),
+    objectiveFailedRate: rate(outcomes('objective-failed'), runs),
     retreatRate: rate(results.filter((result) => result.retreated).length, runs),
     turnsMean: meanOf(turns),
     turnsMedian: summarize(turns).median,

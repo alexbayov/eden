@@ -45,6 +45,8 @@ export interface RunConfig {
   seed: number
   policyId: string
   mode: SimulationMode
+  /** Whether the pass restocked ammunition between encounters (chain mode only). */
+  restock: boolean
   turnLimit: number
 }
 
@@ -94,6 +96,8 @@ export interface SimulationReport {
   runs: number
   policy: string
   mode: SimulationMode
+  /** Whether the pass restocked ammunition between encounters (chain mode only). */
+  restock: boolean
   turnLimit: number
   arenas: ArenaReport[]
   /** Every battle of every arena pooled: docs W3-02 criterion 2's "и суммарно". */
@@ -237,6 +241,7 @@ export function buildReport(
     runs: config.runs,
     policy: config.policyId,
     mode: config.mode,
+    restock: config.restock,
     turnLimit: config.turnLimit,
     arenas: arenaResults.map((entry) => ({
       arena: entry.arenaId,
@@ -265,12 +270,12 @@ export function renderMarkdown(report: SimulationReport): string {
   lines.push(`- seed: \`${report.seed}\``)
   lines.push(`- runs per encounter: \`${report.runs}\``)
   lines.push(`- policy: \`${report.policy}\``)
-  lines.push(`- mode: \`${report.mode}\``)
+  lines.push(`- mode: \`${report.mode}\`${report.restock ? ' (+ восполнение патронов между encounter)' : ''}`)
   lines.push(`- turn limit: \`${report.turnLimit}\``)
   lines.push('')
   /* Exact flags rather than a script name: the two npm scripts differ only in defaults, and a
      reader who copies a command that silently uses a different mode reproduces different numbers. */
-  const command = `npx tsx src/sim/cli.ts --runs ${report.runs} --seed ${report.seed} --policy ${report.policy} --mode ${report.mode} --turn-limit ${report.turnLimit}`
+  const command = `npx tsx src/sim/cli.ts --runs ${report.runs} --seed ${report.seed} --policy ${report.policy} --mode ${report.mode} --turn-limit ${report.turnLimit}${report.restock ? ' --restock' : ''}`
   lines.push(
     report.commit
       ? `Числа воспроизводятся на коммите \`${report.commit}\` из каталога \`code/\`:\n\n\`\`\`\n${command}\n\`\`\``
@@ -279,17 +284,17 @@ export function renderMarkdown(report: SimulationReport): string {
   lines.push('')
   lines.push('## Combat, per encounter')
   lines.push('')
-  lines.push('| encounter | win | loss | ammo-empty | turn-limit | turns (mean/med) | dmg taken | dmg dealt | ammo | reloads | jams | hit | crit | malf | wpn dur | armor dur |')
-  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
+  lines.push('| encounter | win | loss | ammo-empty | turn-limit | obj-failed | turns (mean/med) | dmg taken | dmg dealt | ammo | reloads | jams | hit | crit | malf | wpn dur | armor dur |')
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
   for (const arena of report.arenas) {
     const metrics = arena.metrics
     lines.push(
-      `| \`${arena.encounterId}\` | ${percent(metrics.winRate)} | ${percent(metrics.lossRate)} | ${percent(metrics.ammoEmptyRate)} | ${percent(metrics.turnLimitRate)} | ${fixed(metrics.turnsMean)} / ${metrics.turnsMedian} | ${fixed(metrics.damageTakenMean)} | ${fixed(metrics.damageDealtMean)} | ${fixed(metrics.ammoSpentMean)} | ${fixed(metrics.reloadsMean)} | ${fixed(metrics.jamClearsMean)} | ${percent(metrics.hitRate)} | ${percent(metrics.critRate)} | ${percent(metrics.malfunctionRate)} | ${fixed(metrics.weaponDurabilityLostMean)} | ${fixed(metrics.armorDurabilityLostMean)} |`,
+      `| \`${arena.encounterId}\` | ${percent(metrics.winRate)} | ${percent(metrics.lossRate)} | ${percent(metrics.ammoEmptyRate)} | ${percent(metrics.turnLimitRate)} | ${percent(metrics.objectiveFailedRate)} | ${fixed(metrics.turnsMean)} / ${metrics.turnsMedian} | ${fixed(metrics.damageTakenMean)} | ${fixed(metrics.damageDealtMean)} | ${fixed(metrics.ammoSpentMean)} | ${fixed(metrics.reloadsMean)} | ${fixed(metrics.jamClearsMean)} | ${percent(metrics.hitRate)} | ${percent(metrics.critRate)} | ${percent(metrics.malfunctionRate)} | ${fixed(metrics.weaponDurabilityLostMean)} | ${fixed(metrics.armorDurabilityLostMean)} |`,
     )
   }
   const total = report.total
   lines.push(
-    `| **всего** | ${percent(total.winRate)} | ${percent(total.lossRate)} | ${percent(total.ammoEmptyRate)} | ${percent(total.turnLimitRate)} | ${fixed(total.turnsMean)} / ${total.turnsMedian} | ${fixed(total.damageTakenMean)} | ${fixed(total.damageDealtMean)} | ${fixed(total.ammoSpentMean)} | ${fixed(total.reloadsMean)} | ${fixed(total.jamClearsMean)} | ${percent(total.hitRate)} | ${percent(total.critRate)} | ${percent(total.malfunctionRate)} | ${fixed(total.weaponDurabilityLostMean)} | ${fixed(total.armorDurabilityLostMean)} |`,
+    `| **всего** | ${percent(total.winRate)} | ${percent(total.lossRate)} | ${percent(total.ammoEmptyRate)} | ${percent(total.turnLimitRate)} | ${percent(total.objectiveFailedRate)} | ${fixed(total.turnsMean)} / ${total.turnsMedian} | ${fixed(total.damageTakenMean)} | ${fixed(total.damageDealtMean)} | ${fixed(total.ammoSpentMean)} | ${fixed(total.reloadsMean)} | ${fixed(total.jamClearsMean)} | ${percent(total.hitRate)} | ${percent(total.critRate)} | ${percent(total.malfunctionRate)} | ${fixed(total.weaponDurabilityLostMean)} | ${fixed(total.armorDurabilityLostMean)} |`,
   )
   lines.push('')
   lines.push('## TTK по архетипу (ходы игрока)')

@@ -67,7 +67,10 @@ const POLICY = 'cover-torso'
 let cached: Promise<SimulationReport> | null = null
 const report = (): Promise<SimulationReport> =>
   (cached ??= runSimulation(
-    parseArgs([], { runs: RUNS, seed: SEED, policyId: POLICY, mode: 'chain', write: false, quiet: true, commit: 'balance-bounds' }),
+    /* `restock: true` — the corridors below are stated about a player who visits the base between encounters, which
+       is what the game offers. Without it a six-encounter campaign measures a hero who never resupplies and the
+       finale soft-locks on empty 13.6% of the time; see `restockBetweenEncounters`. */
+    parseArgs([], { runs: RUNS, seed: SEED, policyId: POLICY, mode: 'chain', restock: true, write: false, quiet: true, commit: 'balance-bounds' }),
   ).then((run) => run.report))
 
 /** Structured clone with one field changed, for the falsifiability checks. */
@@ -85,6 +88,7 @@ describe('W3-05 balance bounds — the measured run', () => {
     /* A bound is only meaningful against the run it was calibrated on; a changed default elsewhere
        must fail here rather than silently re-point the corridors at different measurements. */
     expect(measured.mode).toBe('chain')
+    expect(measured.restock).toBe(true)
     expect(measured.policy).toBe(POLICY)
     expect(measured.seed).toBe(SEED)
     expect(measured.runs).toBe(RUNS)
@@ -142,12 +146,27 @@ describe('W3-05 balance bounds — soft-lock and economy', () => {
     for (const arena of measured.arenas)
       expect(arena.metrics.ammoEmptyRate, `${arena.encounterId}: слишком часто заканчиваются патроны`).toBeLessThanOrEqual(MAX_AMMO_EMPTY_RATE)
     expect(measured.total.ammoEmptyRate).toBeLessThanOrEqual(MAX_AMMO_EMPTY_RATE)
-    /* `ammo-empty` is its own outcome, not a defeat: a rate that vanished because the outcome stopped
-       being recorded would pass the ceiling while hiding the soft-lock. The partition guards that. */
-    for (const arena of measured.arenas)
-      expect(
-        arena.metrics.winRate + arena.metrics.lossRate + arena.metrics.ammoEmptyRate + arena.metrics.turnLimitRate,
-      ).toBeCloseTo(1, 4)
+    /*
+     * `ammo-empty` is its own outcome, not a defeat: a rate that vanished because the outcome stopped being recorded
+     * would pass the ceiling while hiding the soft-lock. The partition guards that.
+     *
+     * Asserted on **battle counts**, not on the rates. Two things were wrong with summing the rates: it omitted
+     * `objectiveFailedRate` (the fifth outcome, which only became reachable when zone two shipped a mission with a
+     * `turnLimit`), and each rate is independently rounded to four digits by `metrics.ts`, so five of them legitimately
+     * sum to 1.0001 on a 32-run sample. Recovering the integers makes the statement exact — every battle ends exactly
+     * once — instead of a claim about floating-point tolerance.
+     */
+    for (const arena of measured.arenas) {
+      const metrics = arena.metrics
+      const counted = [
+        metrics.winRate,
+        metrics.lossRate,
+        metrics.ammoEmptyRate,
+        metrics.turnLimitRate,
+        metrics.objectiveFailedRate,
+      ].reduce((sum, value) => sum + Math.round(value * metrics.runs), 0)
+      expect(counted, `${arena.encounterId}: исходы не покрывают все бои ровно один раз`).toBe(metrics.runs)
+    }
   })
 
   it('leaves a pass able to pay for its own healing and repairs', async () => {

@@ -43,6 +43,7 @@ import {
 } from '../game/progression'
 import { campaignMissionsOf } from '../game/campaign-catalog'
 import type { MissionDefinition, RewardDefinition } from '../game/campaign-content'
+import { restockAmmo } from '../game/combat-logistics'
 import { createEncounterUnits } from '../game/encounter'
 import { syncEquipmentInstances } from '../game/equipment-content'
 import type { Inventory } from '../game/inventory'
@@ -53,12 +54,42 @@ import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from '.
 import type { BaseState } from '../game/base'
 import type { SimulationContent } from './content-source'
 
-/** Playable encounters in campaign order; ties broken by id so the sequence is total. */
-export const orderedMissions = (content: SimulationContent): MissionDefinition[] =>
-  [...content.missions].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+/**
+ * The hero's reserve at campaign start, read off the first encounter's arena.
+ *
+ * Used as the restock target so the between-encounter base visit restores **the loadout the content authored**
+ * rather than a number invented here. Taken from the arena rather than hard-coded because the starting weapon is
+ * content and may be retuned.
+ */
+export const campaignStartReserve = (content: SimulationContent): number => {
+  const first = orderedMissions(content)[0]
+  const arena = first ? content.arenas.byId.get(first.arenaId) : undefined
+  return arena?.units.find((unit) => unit.id === 'hero')?.weaponState?.reserveAmmo ?? 0
+}
+
+/** Zone id → position from `zones.json`, the same map the app shell builds on boot. */
+export const zoneOrderFor = (content: SimulationContent): ReadonlyMap<string, number> =>
+  new Map(content.zones.map((zone) => [zone.id, zone.order]))
+
+/**
+ * Playable encounters in campaign order: zones by `zones.json` position, encounters by `order` inside a zone,
+ * ties broken by id so the sequence is total.
+ *
+ * Sorting by `order` alone interleaved zones once a second zone shipped (mission `order` restarts at 1 per zone),
+ * which would have made `chain` mode measure a sequence the player cannot actually walk.
+ */
+export const orderedMissions = (content: SimulationContent): MissionDefinition[] => {
+  const zoneOrder = zoneOrderFor(content)
+  return [...content.missions].sort(
+    (left, right) =>
+      (zoneOrder.get(left.zoneId) ?? 0) - (zoneOrder.get(right.zoneId) ?? 0) ||
+      left.order - right.order ||
+      left.id.localeCompare(right.id),
+  )
+}
 
 export const campaignMissionsFor = (content: SimulationContent): CampaignMission[] =>
-  campaignMissionsOf(orderedMissions(content))
+  campaignMissionsOf(orderedMissions(content), zoneOrderFor(content))
 
 /**
  * Everything that survives an encounter. `units` carries the hero's HP, statuses and live weapon
@@ -133,6 +164,52 @@ export function resolveVictory(content: SimulationContent, progress: CampaignPro
     content.campaignCatalog.progression,
   )
   return { campaign: transition.campaign, inventory: transition.inventory, units: finalUnits, base: progress.base, character: transition.character }
+}
+
+/**
+ * Spends stashed ammunition bundles on the hero's weapon between encounters, the way a base visit does.
+ *
+ * Why this exists: the simulator modelled a player who **never restocks**, because `restockAmmo` (the shipped
+ * `W6-05` transaction) had no caller here. Over one three-encounter zone that was a defensible pessimistic bound.
+ * Over six encounters it stops describing the game: the hero reaches the last encounter with a median of 11 rounds
+ * of the 21 they start with, and the finale soft-locks on empty 13.6% of the time against a 5% ceiling — a number
+ * about the simulator's abstinence, not about the encounter.
+ *
+ * Applies the game's own transaction in a loop, one bundle at a time, until the reserve reaches `targetReserve` or
+ * the stash runs out. It cannot invent ammunition: every round comes from a bundle the reward catalog actually
+ * granted, so a zone that does not pay ammunition still measures as dry.
+ *
+ * `targetReserve` is the magazine-derived campaign-start reserve rather than a new balance number, so this restores
+ * the loadout the arena ships instead of choosing how much a player *should* carry — the decision `restockAmmo`
+ * deliberately refuses to make.
+ */
+export function restockBetweenEncounters(
+  content: SimulationContent,
+  progress: CampaignProgress,
+  targetReserve: number,
+): CampaignProgress {
+  const hero = progress.units.find((unit) => unit.id === 'hero')
+  const instanceId = hero?.weaponState?.weaponInstanceId
+  if (!instanceId) return progress
+  let inventory = progress.inventory
+  for (;;) {
+    const instance = inventory.equipment.find((entry) => entry.instanceId === instanceId)
+    if (!instance || (instance.reserveAmmo ?? 0) >= targetReserve) break
+    const result = restockAmmo(inventory, instanceId, content.itemEffects)
+    if (!result.ok) break
+    inventory = result.value.inventory
+  }
+  if (inventory === progress.inventory) return progress
+  /* The hero's live `weaponState` is what the next `createEncounterUnits` reads, so the restored reserve has to be
+     mirrored onto the unit as well as the equipment instance — otherwise the rounds exist in the save and not in
+     the battle. */
+  const restored = inventory.equipment.find((entry) => entry.instanceId === instanceId)
+  const units = progress.units.map((unit) =>
+    unit.id === 'hero' && unit.weaponState
+      ? { ...unit, weaponState: { ...unit.weaponState, reserveAmmo: restored?.reserveAmmo ?? unit.weaponState.reserveAmmo } }
+      : unit,
+  )
+  return { ...progress, inventory, units }
 }
 
 /**

@@ -77,8 +77,17 @@ describe('W4-01 shipped progression catalog', () => {
   })
 
   it('agrees with the actual shipped reward XP rather than with historical doc 05 numbers', () => {
-    /* Acceptance criterion 5. The campaign's own reward totals must be meaningful level moments:
-       clearing encounter 1 reaches L2, clearing the zone reaches L4. Read from `rewards.json`. */
+    /*
+     * Acceptance criterion 5: the campaign's own reward totals have to be meaningful level moments.
+     *
+     * **Updated by D-03.** With one zone the shipped rewards totalled 135 XP and reached L3, so the curve's L4–L6
+     * bands (155/235/330) were not supported by any content — doc 12 recorded that as a known gap. Zone two's three
+     * encounters (75/90/105) take the total to 405 and the campaign now spans the whole curve, which is what makes
+     * six levels a shipped feature rather than a table.
+     *
+     * Asserted as monotone progress reaching the ceiling rather than as a list of levels per encounter, so retuning an
+     * individual reward is not a test failure while "the campaign covers the curve" still is.
+     */
     const rewards = validateRewards(shipped('rewards'))
     if (!rewards.ok) throw rewards.error
     const totals = rewards.value.reduce<number[]>(
@@ -88,10 +97,16 @@ describe('W4-01 shipped progression catalog', () => {
     expect(totals.length).toBeGreaterThanOrEqual(3)
     expect(levelForXp(totals[0], curve)).toBe(1)
     expect(levelForXp(totals[1], curve)).toBe(2)
-    expect(levelForXp(totals.at(-1)!, curve)).toBe(3)
+    /* The full campaign reaches the top of the curve, so no level band is unreachable content. `thresholds[i]` is the
+       XP for level `i + 2` (L1 has no threshold), so the ceiling is `length + 1`. */
+    expect(levelForXp(totals.at(-1)!, curve)).toBe(curve.thresholds.length + 1)
+    /* Levels never go backwards as encounters are cleared. */
+    const levels = totals.map((total) => levelForXp(total, curve))
+    for (const [index, level] of levels.entries())
+      if (index > 0) expect(level).toBeGreaterThanOrEqual(levels[index - 1])
     /* Reward totals intentionally sit inside bands rather than exactly on every threshold,
        so later defeat penalties can charge XP above the current level floor. */
-    for (const total of totals.slice(0, 3)) expect(curve.thresholds.includes(total)).toBe(false)
+    for (const total of totals) expect(curve.thresholds.includes(total)).toBe(false)
   })
 })
 

@@ -37,6 +37,7 @@ import {
 import { ContentLoadError } from '../game/content-format'
 import {
   loadBaseUpgrades,
+  loadItemEffects,
   loadItems,
   loadMissions,
   loadRecipes,
@@ -44,6 +45,7 @@ import {
   loadZones,
   validateCampaignCatalog,
   type ItemDefinition,
+  type ItemEffectDefinition,
   type MissionDefinition,
   type RewardDefinition,
   type ZoneDefinition,
@@ -106,6 +108,8 @@ export interface SimulationContent {
   rewards: RewardDefinition[]
   zones: ZoneDefinition[]
   items: ItemDefinition[]
+  /** W5-03 quick-slot effects; the simulator needs them to spend ammunition bundles between encounters. */
+  itemEffects: ItemEffectDefinition[]
   recipes: RecipeDefinition[]
   upgrades: BaseUpgradeDefinition[]
   equipment: EquipmentCatalog
@@ -120,13 +124,14 @@ export interface SimulationContent {
  */
 export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<SimulationContent> {
   return withPublicFetch(async () => {
-    const [manifest, missions, rewards, upgrades, recipes, items, zones, equipment, progression] = await Promise.all([
+    const [manifest, missions, rewards, upgrades, recipes, items, itemEffects, zones, equipment, progression] = await Promise.all([
       loadArenaManifest(),
       loadMissions(),
       loadRewards(),
       loadBaseUpgrades(),
       loadRecipes(),
       loadItems(),
+      loadItemEffects(),
       loadZones(),
       loadEquipmentCatalog(),
       loadProgression(),
@@ -151,6 +156,7 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
       catalogId: arenas.catalogId,
       arenas,
       missions: playable,
+      itemEffects,
       rewards: validated.value.rewards,
       zones: validated.value.zones,
       items,
@@ -166,6 +172,8 @@ export async function loadSimulationContent(publicRoot = PUBLIC_ROOT): Promise<S
         items,
         equipment,
         progression: progression.curve,
+        /* Same zone sequencing as the app shell, so a save the simulator builds validates in the game. */
+        zoneOrderById: new Map(validated.value.zones.map((zone) => [zone.id, zone.order])),
       }),
     }
   }, publicRoot)

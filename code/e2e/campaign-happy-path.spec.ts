@@ -39,7 +39,18 @@ import {
  */
 
 const content = loadShippedContent();
-const encounters = orderedEncounters(content);
+/*
+ * The **first zone only**, deliberately.
+ *
+ * Every fixture below names a specific enemy id and a measured firing cell on a specific map, so this spec is a
+ * statement about those three encounters, not about however many the build ships. D-03 added a second zone, and walking
+ * it here would mean inventing firing positions for its maps and re-deriving them whenever that content is retuned.
+ * Zone-to-zone progression is covered as its own property in `two-zone-progression.spec.ts`; this file stays the
+ * end-to-end proof that a *zone* plays from base to reward and back.
+ */
+const allEncounters = orderedEncounters(content);
+const firstZoneId = allEncounters[0].zoneId;
+const encounters = allEncounters.filter((mission) => mission.zoneId === firstZoneId);
 const [firstEncounter, secondEncounter, thirdEncounter] = encounters;
 const rewardFor = (rewardId: string) => content.rewards.find((entry) => entry.id === rewardId)!;
 
@@ -169,7 +180,7 @@ test.describe("W1-03 campaign happy path", () => {
     await expect(page.locator("main.game-shell")).toContainText(`XP: ${reward.xp}`);
   });
 
-  test("completes all three encounters in order and marks the zone completed", async ({ page }) => {
+  test("completes every encounter of the first zone in order and marks that zone completed", async ({ page }) => {
     /* Acceptance criteria 1 and 5 together. Each encounter is entered from its *own* fixture with
        its own lethal seed, then played through the real UI, so the sequence covers all three
        shipped arenas rather than replaying the first one three times. */
@@ -263,8 +274,23 @@ test.describe("W1-03 campaign happy path", () => {
       });
       /* XP accumulates from the shipped reward catalog, not from a literal. */
       expect(persisted.campaign.xp).toBe(xpForRewards(content, claimed));
-      /* Acceptance criterion 5: the zone flips to completed only after the last encounter. */
-      expect(persisted.campaign.zone.status).toBe(isLast ? "completed" : "available");
+      /*
+       * Acceptance criterion 5: the zone flips to completed only after *its own* last encounter.
+       *
+       * With a second zone shipped, finishing zone one no longer finishes the campaign — the ladder promotes zone two
+       * and `zone` follows it. So the assertion is about which zone is active, not about a status: `available` for the
+       * next zone is the correct outcome, and it is exactly what the interleaving defect got wrong.
+       */
+      const zoneEntry = persisted.campaign.zones.find((zone) => zone.id === firstZoneId);
+      if (isLast) {
+        expect(zoneEntry?.status).toBe("completed");
+        const nextZone = persisted.campaign.zones.find((zone) => zone.status === "available");
+        if (nextZone) expect(persisted.campaign.zone).toEqual({ id: nextZone.id, status: "available" });
+        else expect(persisted.campaign.zone.status).toBe("completed");
+      } else {
+        expect(zoneEntry?.status).toBe("available");
+        expect(persisted.campaign.zone).toEqual({ id: firstZoneId, status: "available" });
+      }
     }
 
     expect(errors).toEqual([]);
@@ -275,9 +301,10 @@ test.describe("W1-03 campaign happy path", () => {
     await seedRawSave(page, buildSave(content, { screen: "mission-select", encounterId: secondEncounter.id }).raw);
     await gotoApp(page);
 
-    /* Encounter order in the DOM must match catalog order, not insertion order. */
-    await expect(missionCards(page)).toHaveCount(encounters.length);
-    for (const [index, encounter] of encounters.entries())
+    /* Encounter order in the DOM must match catalog order, not insertion order. The screen lists the whole campaign,
+       so it is counted against every shipped encounter rather than only this zone's. */
+    await expect(missionCards(page)).toHaveCount(allEncounters.length);
+    for (const [index, encounter] of allEncounters.entries())
       await expect(missionCards(page).nth(index).getByRole("heading", { level: 3 })).toHaveText(encounter.name);
 
     await expect(missionCard(page, secondEncounter.name).getByRole("button", { name: "НАЧАТЬ" })).toBeEnabled();

@@ -54,6 +54,21 @@ export const WIN_RATE_CORRIDORS: Readonly<Record<string, Corridor>> = {
   'collapsed-yard': { min: 0.75, max: 0.95 },
   /* Two enemies, one of them armoured, fought on carried HP/ammo: the zone's difficulty peak. */
   'relay-station': { min: 0.55, max: 0.85 },
+  /*
+   * Zone two, «Водовод» (D-03). Measured at 1000 chain passes, `cover-torso`, seed 12345, with the between-encounter
+   * ammunition restock the game offers (`--restock`): 65.8 / 51.9 / 71.2.
+   *
+   * The corridors are wider than zone one's on the low side, because these encounters are fought on whatever the
+   * previous five left: the hero reaches the last one with a median of 11 rounds out of 21. They are not centred on
+   * the measurement — a corridor that hugged the number would fail on any deliberate retune — but they do exclude
+   * both a free encounter and an unwinnable one.
+   */
+  /* First `retrieve` in the game: won by carrying the canister out, so the floor is about surviving the walk. */
+  'water-cache': { min: 0.5, max: 0.85 },
+  /* `escape` under pursuit, and the hardest step of the zone as measured; deliberately allowed to be a coin flip. */
+  'filter-works': { min: 0.4, max: 0.75 },
+  /* Zone finale: a contested hold against a single defender, after five encounters of attrition. */
+  'pumping-station': { min: 0.55, max: 0.85 },
 }
 
 /**
@@ -270,4 +285,17 @@ export const KNOWN_ONE_SHOT_WAIVERS: readonly string[] = [
   'one-shot:collapsed-yard:yard-rusher:critical',
   'one-shot:perimeter-checkpoint:checkpoint-shooter:critical',
   'one-shot:relay-station:relay-shooter:critical',
+  /*
+   * Zone two (D-03) adds three of the same case, not a new one: every entry here is a `pm`/`hornet` critical through
+   * the starter vest, `round(20 × 1.1 × 1.5) − 3 = 30` against 24 max HP. They are listed individually rather than
+   * covered by a pattern because the waiver is checked for exact equality — a wildcard would silently absorb a
+   * genuinely new one-shot on a future map.
+   *
+   * Zone two does **not** widen the underlying problem: no arena in it gives an enemy a weapon that kills without a
+   * crit, which `enemy-roster.test.ts` checks separately. Closing these is still the same balance decision (hero max
+   * HP, vest reduction, weapon damage or the critical multiplier), and it is still the owner's.
+   */
+  'one-shot:filter-works:works-runner:critical',
+  'one-shot:filter-works:works-watch:critical',
+  'one-shot:pumping-station:station-sentinel:critical',
 ]
