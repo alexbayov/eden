@@ -60,15 +60,17 @@ export interface BackpackLossPolicy {
 }
 
 /**
- * A concrete policy for tests and callers, explicitly **not approved**.
+ * The shipped policy. **Approved by decision D-01 on 27 August 2026** at the rate the implementation
+ * had been carrying as a proposal, so no number moved when the decision landed.
  *
  * 30% is the first tier of the cancelled escalation table in doc 07 §7.7, i.e. the mildest number
- * that document ever proposed, and it is used here *without* the tiers above it. Naming it
- * `PROPOSED_` rather than `DEFAULT_` is deliberate: decision **D-01** has not been taken by the
- * owner, no shipped screen calls this module yet, and a name suggesting a default would quietly turn
- * an implementation's guess into the game's balance.
+ * that document ever proposed, and it is used here *without* the tiers above it — the escalation
+ * itself stays banned by the audit, and `BackpackLossPolicy` has no per-death dimension to express
+ * it with. The former name `BACKPACK_LOSS_POLICY` and the `proposed` view flag were removed
+ * with the decision rather than left pinned to `false`: a permanently-false "is this approved" flag
+ * is a second, staler answer to a question the approved policy already answers.
  */
-export const PROPOSED_BACKPACK_LOSS_POLICY: BackpackLossPolicy = {
+export const BACKPACK_LOSS_POLICY: BackpackLossPolicy = {
   rate: 0.3,
   loseResources: true,
   loseItems: true,

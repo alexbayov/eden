@@ -20,7 +20,7 @@ import {
   type ReturnTableDefinition,
 } from './campaign-content'
 import { effectForItem } from './consumables'
-import { PROPOSED_BACKPACK_LOSS_POLICY } from './death-loss'
+import { BACKPACK_LOSS_POLICY } from './death-loss'
 import { buildDeathLossView } from './death-loss-view'
 import { buildDismantlePanel } from './dismantle-view'
 import { dismantleEquipment, returnsFor } from './dismantle'
@@ -441,7 +441,7 @@ describe('W5-05 death loss view', () => {
   const view = (overrides: Partial<Parameters<typeof buildDeathLossView>[0]> = {}) =>
     buildDeathLossView({
       inventory: carried(),
-      policy: PROPOSED_BACKPACK_LOSS_POLICY,
+      policy: BACKPACK_LOSS_POLICY,
       reason: 'defeat',
       firstDeathReturnUsed: true,
       /* Item names come from the shipped catalog, exactly as the shell supplies them. */
@@ -459,7 +459,7 @@ describe('W5-05 death loss view', () => {
     const source = carried()
     const committed = buildDeathLossView({
       inventory: source,
-      policy: PROPOSED_BACKPACK_LOSS_POLICY,
+      policy: BACKPACK_LOSS_POLICY,
       reason: 'defeat',
       firstDeathReturnUsed: true,
     }).inventory!
@@ -472,16 +472,18 @@ describe('W5-05 death loss view', () => {
     expect(preview.safetyNote).toContain('Stash')
   })
 
-  it('labels the rule as an unapproved proposal while D-01 is open', () => {
+  it('states the approved rule without a pending-decision caveat (D-01)', () => {
     const preview = view()
-    expect(preview.proposed).toBe(true)
-    expect(preview.ratePercent).toBe(Math.round(PROPOSED_BACKPACK_LOSS_POLICY.rate * 100))
-    expect(preview.policyLabel).toContain('D-01')
+    expect(preview.ratePercent).toBe(Math.round(BACKPACK_LOSS_POLICY.rate * 100))
+    expect(preview.ratePercent).toBe(30)
     expect(preview.policyLabel).toContain('без эскалации')
-    /* An approved policy drops the caveat and nothing else changes. */
-    const approved = view({ proposed: false })
-    expect(approved.policyLabel).not.toContain('D-01')
-    expect(approved.lines).toEqual(preview.lines)
+    /* D-01 landed: the screen must not describe the shipped balance as a proposal any more. */
+    expect(preview.policyLabel).not.toContain('D-01')
+    expect(preview.policyLabel).not.toContain('Предлагаемое')
+    expect(preview.policyLabel).not.toContain('не принято')
+    /* The label follows the policy rather than restating a hardcoded number, so a retune moves it. */
+    const retuned = view({ policy: { ...BACKPACK_LOSS_POLICY, rate: 0.5 } })
+    expect(retuned.policyLabel).toContain('50%')
   })
 
   it('distinguishes the free first death, a retreat, and a backpack too small to charge', () => {
@@ -503,7 +505,7 @@ describe('W5-05 death loss view', () => {
   })
 
   it('commits nothing when the policy itself is invalid', () => {
-    const broken = view({ policy: { ...PROPOSED_BACKPACK_LOSS_POLICY, rate: 1.5 } })
+    const broken = view({ policy: { ...BACKPACK_LOSS_POLICY, rate: 1.5 } })
     expect(broken).toMatchObject({ applies: false, inventory: null })
     expect(broken.skippedReason).toContain('отклонена')
   })

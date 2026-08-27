@@ -36,7 +36,7 @@ import {
   type ReturnTable,
 } from './dismantle'
 import {
-  PROPOSED_BACKPACK_LOSS_POLICY,
+  BACKPACK_LOSS_POLICY,
   applyBackpackDeathLoss,
   lossCandidates,
   lossUnitsFor,
@@ -391,7 +391,7 @@ describe('W5-04 dismantle', () => {
 })
 
 describe('W5-05 backpack loss on defeat', () => {
-  const policy: BackpackLossPolicy = PROPOSED_BACKPACK_LOSS_POLICY
+  const policy: BackpackLossPolicy = BACKPACK_LOSS_POLICY
 
   it('takes only from the backpack: stash and equipment are untouched by reference', () => {
     const inventory = carrying([

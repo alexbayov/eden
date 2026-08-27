@@ -171,9 +171,16 @@ describe("W1-02 base screen", () => {
     expect(readout.textContent).toContain(`Уровень ${levelForXp(xp, curve)}`);
     expect(readout.textContent).toContain(`XP ${xp}`);
     expect(readout.textContent).toContain(`до уровня 3: ${xpToNextLevel(xp, curve)} XP`);
-    /* Points earned but not spendable yet still surface, so they are not silently lost. */
-    expect(readout.textContent).toContain(`нераспределённых очков: ${skillPointsGranted(2, curve)}`);
-    expect(persistedSave().character.level).toBe(2);
+    /* D-02 (27 August 2026) sent skills/SPECIAL/perks post-MVP. The counter is therefore *not*
+       rendered — nothing can spend it — while the points are still accrued and persisted so that
+       shipping W4-03/W4-04 later stays a content change rather than a save migration. Both halves are
+       asserted together: hiding the number is only correct while the state behind it survives. */
+    expect(readout.textContent).not.toContain("нераспределённых очков");
+    expect(skillPointsGranted(2, curve)).toBeGreaterThan(0);
+    expect(persistedSave().character).toMatchObject({
+      level: 2,
+      unspentSkillPoints: skillPointsGranted(2, curve),
+    });
   });
 
   it("reports the curve ceiling instead of an impossible next level", async () => {

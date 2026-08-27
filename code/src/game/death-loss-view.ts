@@ -6,11 +6,12 @@
  * `inventory` from the same result. Nothing is computed twice, so the list a player reads before
  * pressing "вернуться на базу" cannot differ from what is actually taken (W5-05 criterion 4).
  *
- * The policy is labelled, visibly and in the DOM, as a **proposal**. Decision D-01 has not been taken
- * by the owner: 30% is the mildest tier of a table doc 07 §7.7 proposed and the audit then banned the
- * escalation of. Shipping that number silently as "the" penalty would turn an implementation's guess
- * into the game's balance, so `policyLabel` states its provenance and `proposed` is exposed for the
- * shell to mark up. When D-01 lands, the label changes and nothing else has to.
+ * The rule is stated to the player, but no longer as a proposal: **decision D-01 landed on 27 August
+ * 2026** and approved the 30% the implementation was already carrying. The `proposed` input and the
+ * caveat branch of `policyLabel` were deleted rather than defaulted to `false`, because a flag that
+ * can only ever be false is a second answer to "is this balance approved?" that will not stay in step
+ * with the policy it describes. `ratePercent` is still read off the policy and never restated, so the
+ * label follows the rate if the rate is ever retuned.
  *
  * What the view states positively, because a penalty screen is where a player most needs it: the
  * stash, worn equipment and XP-related consequences are **not** part of this loss. Saying only what
@@ -52,9 +53,7 @@ export interface DeathLossView {
   carriedUnits: number
   /** Rate as a percentage for display; read off the policy, never restated. */
   ratePercent: number
-  /** `true` while decision D-01 is open, so the shell can mark the number as unapproved. */
-  proposed: boolean
-  /** Provenance of the rule, stated to the player. */
+  /** The rule as stated to the player. */
   policyLabel: string
   /** Headline: what happens to the backpack. */
   summary: string
@@ -88,11 +87,6 @@ export interface DeathLossInput {
   firstDeathReturnUsed: boolean
   labelFor?: (itemId: string) => string
   selection?: LossSelection
-  /**
-   * Whether the policy is still awaiting decision D-01. Defaults to `true`: the honest default while
-   * no owner decision exists, and a caller that has one has to say so explicitly.
-   */
-  proposed?: boolean
 }
 
 /**
@@ -106,12 +100,9 @@ export interface DeathLossInput {
 export function buildDeathLossView(input: DeathLossInput): DeathLossView {
   const labelFor = input.labelFor ?? ((itemId: string) => itemId)
   const ratePercent = Math.round(input.policy.rate * 100)
-  const proposed = input.proposed ?? true
-  const policyLabel = proposed
-    ? `Предлагаемое правило (решение D-01 не принято): теряется ${ratePercent}% переносимого груза, без эскалации.`
-    : `Правило: теряется ${ratePercent}% переносимого груза, без эскалации.`
+  const policyLabel = `Правило: теряется ${ratePercent}% переносимого груза, без эскалации.`
   const safetyNote = 'Stash, надетая экипировка и её durability не затрагиваются.'
-  const base = { ratePercent, proposed, policyLabel, safetyNote, lines: [] as LossLine[], lostUnits: 0, carriedUnits: 0 }
+  const base = { ratePercent, policyLabel, safetyNote, lines: [] as LossLine[], lostUnits: 0, carriedUnits: 0 }
 
   if (!shouldApplyBackpackLoss(input.reason, input.firstDeathReturnUsed))
     return {

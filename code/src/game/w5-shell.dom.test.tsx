@@ -30,7 +30,7 @@ import {
 import { buildSave, loadShippedContent } from "../test/campaign-save-fixtures";
 import { effectForItem } from "./consumables";
 import { returnsFor } from "./dismantle";
-import { PROPOSED_BACKPACK_LOSS_POLICY } from "./death-loss";
+import { BACKPACK_LOSS_POLICY } from "./death-loss";
 import { RESOURCE_LABELS, type ResourceId } from "./inventory";
 
 const content = loadShippedContent();
@@ -417,7 +417,7 @@ describe("W5-05 backpack loss on defeat", () => {
     stubShippedContent();
   });
 
-  const rate = PROPOSED_BACKPACK_LOSS_POLICY.rate;
+  const rate = BACKPACK_LOSS_POLICY.rate;
   /** A defeat return carrying loot, past the free first death so the penalty actually applies. */
   const carryingLoot = (overrides: Parameters<typeof buildSave>[1] = { screen: "return" }) =>
     buildSave(content, {
@@ -433,7 +433,7 @@ describe("W5-05 backpack loss on defeat", () => {
     return notice;
   };
 
-  it("lists exactly what will be lost before the player confirms, and labels the rule as a proposal", async () => {
+  it("lists exactly what will be lost before the player confirms, and states the approved rule", async () => {
     seedRawSave(carryingLoot());
     const { container } = await renderApp();
     const before = readRawSave();
@@ -443,9 +443,9 @@ describe("W5-05 backpack loss on defeat", () => {
     expect(notice.getAttribute("data-carried-units")).toBe("10");
     expect(notice.getAttribute("data-loss-units")).toBe(String(Math.floor(10 * rate)));
     expect(notice.getAttribute("data-loss-rate")).toBe(String(Math.round(rate * 100)));
-    /* Decision D-01 is open, so the number is marked as unapproved in the DOM and in the text. */
-    expect(notice.getAttribute("data-proposed")).toBe("true");
-    expect(notice.textContent).toContain("D-01");
+    /* D-01 approved the rate, so the proposal marker is gone from both the DOM and the text. */
+    expect(notice.hasAttribute("data-proposed")).toBe(false);
+    expect(notice.textContent).not.toContain("D-01");
     /* Every line names the item and the amount; item names come from the catalog. */
     const lines = [...container.querySelectorAll("span.loss-line")].map((line) => line.textContent ?? "");
     expect(lines).toHaveLength(2);

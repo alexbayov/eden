@@ -334,8 +334,10 @@ test.describe("W4-05 schema upgrade and W4-01 level progress across a reload", (
     });
     await expect(progressionReadout(page)).toContainText(`Уровень ${expectedLevel}`);
     await expect(progressionReadout(page)).toContainText(`до уровня ${expectedLevel + 1}: ${xpToNextLevel(resultingXp, curve)} XP`);
-    /* Unspent points persist even though nothing spends them yet (W4-03 is out of scope). */
-    await expect(progressionReadout(page)).toContainText("нераспределённых очков");
+    /* Unspent points persist (asserted in `levelled` above) but are **not** shown: decision D-02 put
+       skills/SPECIAL/perks post-MVP, so there is nothing to spend them on yet. */
+    expect(skillPointsGranted(expectedLevel, curve)).toBeGreaterThan(0);
+    await expect(progressionReadout(page)).not.toContainText("нераспределённых очков");
 
     await reloadApp(page);
 

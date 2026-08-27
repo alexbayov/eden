@@ -167,7 +167,8 @@ describe("W1-02 reward and return screens", () => {
       unspentSkillPoints: skillPointsGranted(level, content.progression.curve),
     });
     expect(readouts()[0]).toContain(`Уровень ${level}`);
-    expect(readouts()[0]).toContain("нераспределённых очков: 0");
+    /* D-02 sent skills post-MVP: the point is persisted above but never advertised on screen. */
+    expect(readouts()[0]).not.toContain("нераспределённых очков");
   });
 });
 

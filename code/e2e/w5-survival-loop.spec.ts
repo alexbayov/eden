@@ -316,9 +316,9 @@ test.describe("W5-05 backpack loss on defeat", () => {
 
     const notice = lossNotice(page);
     await expect(notice).toHaveAttribute("data-loss-applies", "true");
-    /* The rule is labelled as an unapproved proposal while decision D-01 is open. */
-    await expect(notice).toHaveAttribute("data-proposed", "true");
-    await expect(notice).toContainText("D-01");
+    /* D-01 approved the rate: the shipped screen no longer marks the rule as a proposal. */
+    await expect(notice).not.toHaveAttribute("data-proposed");
+    await expect(notice).not.toContainText("D-01");
     /* And it states what is *not* taken, so the screen cannot be read as "the base was raided". */
     await expect(notice).toContainText("Stash");
 
