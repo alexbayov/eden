@@ -7,8 +7,8 @@ import { expect, type Locator, type Page, type ConsoleMessage } from "@playwrigh
  * asserts these literals still match, so drift fails the E2E run instead of
  * silently turning `clearSave`/`seedSave` into no-ops.
  */
-export const SAVE_STORAGE_KEY = "eden.save.v6";
-export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
+export const SAVE_STORAGE_KEY = "eden.save.v7";
+export const SAVE_BACKUP_KEY = "eden.save.v7.corrupt-backup";
 /**
  * Older keys, newest first, kept so the migration specs can seed a pre-upgrade payload.
  *
@@ -19,6 +19,8 @@ export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
 export const LEGACY_SAVE_STORAGE_KEY = "eden.save.v4";
 /** The v5 key, for the single-hop v5 → v6 case W6-01 introduced. */
 export const LEGACY_V5_SAVE_STORAGE_KEY = "eden.save.v5";
+/** The v6 key, for the single-hop v6 → v7 case W7-01 introduced. */
+export const LEGACY_V6_SAVE_STORAGE_KEY = "eden.save.v6";
 
 /**
  * Boot phases exposed by the shell's loading screen via `data-boot-phase`.

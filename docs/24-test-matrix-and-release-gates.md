@@ -16,13 +16,13 @@
 
 | Что | Значение | Как проверено |
 |---|---|---|
-| `npm test` | **37 файлов / 526 тестов**, все зелёные | прогон |
+| `npm test` | **38 файлов / 553 теста**, все зелёные | прогон |
 | — project `node` | 32 файла / 454 теста | прогон `--project node` |
 | — project `dom` | 5 файлов / 72 теста | прогон `--project dom` |
 | `npm run verify` | проходит целиком, exit 0 | прогон; с `W7-02` включает `validate:content` |
 | `npm run test:e2e` | **12 файлов / 124 теста** в Chromium, зелёные (~2.8 мин) | **прогон**, не только `--list` |
 | Бюджет | initial JS **57.4 kB** gzip, ленивый бой 349.7 kB gzip | `analyze:budget` |
-| Save schema | **v6** (`eden.save.v6`), цепочка v3→v4→v5→v6 | `save.test.ts` |
+| Save schema | **v7** (`eden.save.v7`), цепочка v3→v4→v5→v6→v7 | `save.test.ts` |
 | CI | оба job (`verify`, `e2e`) зелёные | GitHub Actions |
 
 Состав E2E по файлам: `viewport-geometry` 35, `save-reload` 20, `w5-survival-loop` 11, `tutorial` 9, `campaign-failure` 9, `combat-readout` 8, `overwatch` 7, `input-gating` 7, `combat-logistics` 7, `campaign-happy-path` 5, `smoke` 4, `corrupt-save` 2.

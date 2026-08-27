@@ -198,6 +198,21 @@ export const xpForRewards = (content: ShippedContent, claimed: readonly string[]
  * Builds and validates a save. Throws the validator's message when a fixture is impossible,
  * which is the point: the fixture layer cannot drift away from the runtime save contract.
  */
+
+/**
+ * The zone ladder a fixture should carry: every shipped zone in catalog order, with the encounter's own zone set
+ * from `zoneStatus` and later zones locked.
+ */
+const zoneLadderFor = (content: ShippedContent, status: "available" | "completed") => {
+  const seen: string[] = []
+  for (const mission of content.missions) if (!seen.includes(mission.zoneId)) seen.push(mission.zoneId)
+  return seen.map((id, index) => ({
+    id,
+    order: index + 1,
+    status: index === 0 ? status : ("locked" as const),
+  }))
+}
+
 export function buildSave(content: ShippedContent, options: SaveFixtureOptions): SaveFixture {
   const ordered = orderedEncounters(content);
   const encounterId = options.encounterId ?? ordered[0].id;
@@ -264,6 +279,9 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     options.zoneStatus ?? (encounters.every((entry) => entry.status === "completed") ? "completed" : "available");
   const campaign: CampaignState = {
     catalogId: content.arenas.catalogId,
+    /* W7-01: the ladder implied by the shipped zones, with the active zone reflecting `zoneStatus` so a fixture
+       cannot describe a state where the two disagree — the save validator refuses that. */
+    zones: zoneLadderFor(content, zoneStatus),
     screen: options.screen,
     activeMissionId: activeScreen ? encounterId : null,
     activeMapId: activeScreen ? mission.arenaId : null,

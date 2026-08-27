@@ -173,6 +173,9 @@ const initialUnits = createEncounterUnits;
 const LOADING_CAMPAIGN: CampaignState = {
   catalogId: "loading",
   screen: "home",
+  /* W7-01: a placeholder ladder for the pre-boot state. Never persisted — the real one is built by
+     `createCampaign` once the catalog has loaded. */
+  zones: [{ id: "loading", order: 1, status: "available" }],
   activeMissionId: null,
   activeMapId: null,
   mission: {

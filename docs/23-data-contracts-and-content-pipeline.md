@@ -118,10 +118,10 @@ class ContentValidationError extends Error {
 
 | Параметр | Значение |
 |---|---|
-| Версия | `SAVE_SCHEMA_VERSION = 6` (было 5 до `W6-01`, 25 августа 2026) |
-| Ключ | `eden.save.v6` |
-| Ключ резервной копии | `eden.save.v6.corrupt-backup` |
-| Ключи прошлых версий (только чтение) | `LEGACY_SAVE_STORAGE_KEYS = ['eden.save.v5', 'eden.save.v4']` |
+| Версия | `SAVE_SCHEMA_VERSION = 7` (было 6 до `W7-01`, 26 августа 2026) |
+| Ключ | `eden.save.v7` |
+| Ключ резервной копии | `eden.save.v7.corrupt-backup` |
+| Ключи прошлых версий (только чтение) | `LEGACY_SAVE_STORAGE_KEYS = ['eden.save.v6', 'eden.save.v5', 'eden.save.v4']` |
 | Поддерживаемые миграции | v5 → v6 (`normalizeV6`), v4 → v5 → v6, v3 → v4 → v5 → v6 — все только с валидированным каталогом |
 | Валидация v6 | strict cross-field, без изменения версии |
 

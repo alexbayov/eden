@@ -8,10 +8,11 @@ import { DEFAULT_RNG_STATE } from "./rng";
 import { hydrateArenaUnits, type ArmorDefinition, type EquipmentCatalog, type WeaponDefinition } from "./equipment-content";
 import { DEFAULT_LEVEL_CURVE, characterForXp, levelForXp, maxLevel, skillPointsGranted, type CharacterState, type LevelCurve } from "./progression";
 import { initialObjectiveState, isObjectiveState, type ObjectiveState } from "./objective";
+import { isZoneLadder, isZoneLadderReachable } from "./zone-progress";
 
-export const SAVE_SCHEMA_VERSION = 6;
-export const SAVE_STORAGE_KEY = "eden.save.v6";
-export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
+export const SAVE_SCHEMA_VERSION = 7;
+export const SAVE_STORAGE_KEY = "eden.save.v7";
+export const SAVE_BACKUP_KEY = "eden.save.v7.corrupt-backup";
 /**
  * Keys written by earlier schema versions, newest first. Read-only: the adapter falls back to them
  * when the current key is empty, migrates what it finds and writes the result under the current
@@ -19,10 +20,10 @@ export const SAVE_BACKUP_KEY = "eden.save.v6.corrupt-backup";
  * them at a fresh campaign — the exact failure W4-05 criterion 6 exists to catch. The old key is
  * left in place rather than deleted, so a failed upgrade is recoverable by downgrading.
  */
-export const LEGACY_SAVE_STORAGE_KEYS = ["eden.save.v5", "eden.save.v4"] as const;
+export const LEGACY_SAVE_STORAGE_KEYS = ["eden.save.v6", "eden.save.v5", "eden.save.v4"] as const;
 export type BattlePhase = "player" | "enemy" | "victory" | "defeat";
 export interface SaveData {
-  schemaVersion: 6;
+  schemaVersion: 7;
   arenaId: string;
   activeEncounterId: string | null;
   phase: BattlePhase;
@@ -315,7 +316,7 @@ function catalogOf(options?: SaveValidationOptions): CampaignCatalog | undefined
  * отклоняется до миграции"). Everything the two share is one code path; the two fields that differ
  * (`character`, `campaign.returnReason`) are gated on the version rather than duplicated.
  */
-export type SupportedSchemaVersion = 4 | 5 | 6;
+export type SupportedSchemaVersion = 4 | 5 | 6 | 7;
 const progressKeys = ["id", "status", "victories", "firstRewardClaimed", "rewardId", "mapId", "arenaId"] as const;
 const validMissionStatuses = new Set(["locked", "available", "active", "completed", "failed"]);
 const checkProgressShape = (value: unknown, path: string, issues: SaveIssue[]) => {
@@ -493,6 +494,30 @@ function validateVersioned(input: unknown, expected: SupportedSchemaVersion, opt
       if (record(unit) && unit.overwatch !== undefined)
         issue(issues, `$.units[${index}].overwatch`, "только в активной миссии");
     });
+  /**
+   * W7-01 — the zone ladder, from v7.
+   *
+   * Validated rather than trusted for the same reason `overwatch` is: a hand-edited ladder is a skipped campaign. The
+   * reachability check refuses a payload where a later zone is `available` while an earlier one is still `locked`,
+   * and the agreement check refuses one where `zone` names a different zone than the ladder's available entry —
+   * because every screen reads `zone` while unlocking reads `zones`, so a mismatch would show the player one zone
+   * and let them play another.
+   */
+  if (expected >= 7 && record(input.campaign)) {
+    const campaign = input.campaign as Record<string, any>;
+    if (!isZoneLadder(campaign.zones)) issue(issues, "$.campaign.zones", "непустой список зон с уникальным order");
+    else if (!isZoneLadderReachable(campaign.zones))
+      issue(issues, "$.campaign.zones", "достижимая последовательность: completed, затем available, затем locked");
+    else {
+      const active = campaign.zones.find((zone: { status: string }) => zone.status === "available");
+      const declared = record(campaign.zone) ? campaign.zone : undefined;
+      if (active && declared && declared.id !== active.id)
+        issue(issues, "$.campaign.zone", "совпадает с доступной зоной в zones");
+      /* No available zone means the campaign is finished, and `zone` must say so rather than staying open. */
+      if (!active && declared && declared.status !== "completed")
+        issue(issues, "$.campaign.zone", "completed, когда все зоны пройдены");
+    }
+  }
   if (expected >= 6) {
     if (!isObjectiveState(input.objective)) issue(issues, "$.objective", "heldTurns >= 0 и carrying");
     else if (record(input.campaign) && input.campaign.screen !== "mission" && (input.objective.heldTurns !== 0 || input.objective.carrying))
@@ -589,6 +614,41 @@ function normalizeV6(raw: any): any {
   return { ...raw, schemaVersion: 6, objective: initialObjectiveState() };
 }
 /**
+ * v6 → v7 (W7-01). Adds exactly one field and rewrites none:
+ *
+ * | v6 | v7               | rule                                              | default |
+ * |----|------------------|---------------------------------------------------|---------|
+ * | —  | `campaign.zones` | ladder rebuilt from the encounters already stored  | see below |
+ *
+ * **Why the ladder is rebuilt rather than defaulted to "first zone available".** A v6 save can be mid-campaign with
+ * every encounter of its only zone completed, and defaulting would reopen a zone the player had finished. The
+ * encounters carry the answer: a zone whose missions are all `completed` is `completed`, the first zone that is not
+ * is `available`, and anything after it is `locked`. That reads progress the player actually made instead of
+ * guessing.
+ *
+ * Since v6 shipped with exactly one zone, in practice this produces a one-entry ladder — but the rule is written for
+ * the general case so a v6 save from a build with more zones would still migrate correctly.
+ */
+function normalizeV7(raw: any): any {
+  const campaign = record(raw.campaign) ? raw.campaign : undefined;
+  if (!campaign) return { ...raw, schemaVersion: 7 };
+  const encounters: any[] = Array.isArray(campaign.encounters) ? campaign.encounters : [];
+  /* v6 has no per-encounter zone id, so the single stored zone owns every encounter — which is exactly the shape v6
+     could express. */
+  const zoneId = record(campaign.zone) && string(campaign.zone.id) ? campaign.zone.id : "unknown-zone";
+  const cleared = encounters.length > 0 && encounters.every((entry) => entry?.status === "completed");
+  return {
+    ...raw,
+    schemaVersion: 7,
+    campaign: {
+      ...campaign,
+      zones: [{ id: zoneId, order: 1, status: cleared ? "completed" : "available" }],
+      /* Kept in step with the ladder, since the validator now requires the two to agree. */
+      zone: { id: zoneId, status: cleared ? "completed" : "available" },
+    },
+  };
+}
+/**
  * Forward-only migration with the invalid source rejected **before** any field is rewritten:
  * each stage is validated by the rules its own version had, so a save either upgrades cleanly or fails
  * with the offending stage's issue list. The chain is explicit rather than silent — v3 → v4 → v5 → v6 —
@@ -598,21 +658,30 @@ export function migrateSave(input: unknown, _fallbackArenaId?: string, options?:
   if (!record(input)) return { ok: false, error: new SaveValidationError("shape", [{ path: "$", message: "объект" }]) };
   const normalized = options && "missions" in options && !("campaignCatalog" in options) ? { campaignCatalog: options as CampaignCatalog } : options as SaveValidationOptions | undefined;
   if (input.schemaVersion === SAVE_SCHEMA_VERSION) return validateSave(input, normalized);
-  if (input.schemaVersion !== 5 && input.schemaVersion !== 4 && input.schemaVersion !== 3) return validateSave(input, normalized);
+  if (input.schemaVersion !== 6 && input.schemaVersion !== 5 && input.schemaVersion !== 4 && input.schemaVersion !== 3)
+    return validateSave(input, normalized);
   const catalog = catalogOf(normalized);
   if (!catalog) return { ok: false, error: new SaveValidationError("shape", [{ path: "$.campaign", message: "migration requires a validated campaign catalog" }]) };
   const curve = catalog.progression ?? DEFAULT_LEVEL_CURVE;
-  /* A v5 source skips the v4 stage entirely; it is already past it. */
+  /* Each source skips the stages it is already past. */
+  if (input.schemaVersion === 6) {
+    const checkedV6 = validateVersioned(input, 6, normalized);
+    return checkedV6.ok ? validateSave(normalizeV7(checkedV6.value), normalized) : checkedV6;
+  }
   if (input.schemaVersion === 5) {
     const checkedV5 = validateVersioned(input, 5, normalized);
-    return checkedV5.ok ? validateSave(normalizeV6(checkedV5.value), normalized) : checkedV5;
+    if (!checkedV5.ok) return checkedV5;
+    const v6 = validateVersioned(normalizeV6(checkedV5.value), 6, normalized);
+    return v6.ok ? validateSave(normalizeV7(v6.value), normalized) : v6;
   }
   const v4 = input.schemaVersion === 3 ? normalizeV4(input, catalog) : input;
   const checked = validateVersioned(v4, 4, normalized);
   if (!checked.ok) return checked;
   const v5 = validateVersioned(normalizeV5(checked.value, curve), 5, normalized);
   if (!v5.ok) return v5;
-  return validateSave(normalizeV6(v5.value), normalized);
+  const v6 = validateVersioned(normalizeV6(v5.value), 6, normalized);
+  if (!v6.ok) return v6;
+  return validateSave(normalizeV7(v6.value), normalized);
 }
 export const serializeSave = (save: SaveData) => JSON.stringify(save);
 export function deserializeSave(raw: string, options?: CampaignCatalog | SaveValidationOptions): SaveResult { try { return migrateSave(JSON.parse(raw), undefined, options); } catch { return { ok: false, error: new SaveValidationError("parse", [{ path: "$", message: "некорректный JSON" }]) }; } }
