@@ -22,6 +22,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { SIZES } from "../tokens";
 
 const css = readFileSync(new URL("../app.css", import.meta.url), "utf8");
 /** Stylesheet with comments stripped, so prose about :hover cannot satisfy or break a rule check. */
@@ -51,22 +52,33 @@ describe("M3-C stylesheet is actually loaded", () => {
 });
 
 describe("M3-C touch targets and hover independence", () => {
-  it("sets a 44px floor for every shell button", () => {
-    expect(rules).toMatch(/\.game-shell button\s*\{[^}]*min-height:\s*44px/);
-    expect(rules).toMatch(/\.game-shell button\s*\{[^}]*min-width:\s*44px/);
+  it("sets the touch-target floor for every shell button", () => {
+    /*
+     * W8-01 — the floor is now `var(--size-min-touch-target)` rather than a literal `44px`, which was repeated eleven
+     * times. The number itself is asserted against the token below, so this checks the *rule* is present and
+     * `tokens.test.ts` checks the *value* is 44 — together that is the same guarantee with one source.
+     */
+    expect(rules).toMatch(/\.game-shell button\s*\{[^}]*min-height:\s*var\(--size-min-touch-target\)/);
+    expect(rules).toMatch(/\.game-shell button\s*\{[^}]*min-width:\s*var\(--size-min-touch-target\)/);
   });
 
-  it("never declares a target smaller than 44px", () => {
-    const heights = [...rules.matchAll(/min-height:\s*(\d+(?:\.\d+)?)px/g)].map(
-      (match) => Number(match[1]),
-    );
-    expect(heights.length).toBeGreaterThan(4);
-    expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+  it("never declares a target smaller than the floor", () => {
+    /*
+     * Two halves, because the stylesheet now mixes token references with a few genuine pixel values (panel heights,
+     * canvas sizing). Any *literal* `min-height` must still clear the floor, and the token's own value is the floor —
+     * so a target below 44px is impossible whichever form it takes.
+     */
+    expect(SIZES.minTouchTarget).toBe(44);
+    const literals = [...rules.matchAll(/min-height:\s*(\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+    for (const height of literals) expect(height).toBeGreaterThanOrEqual(SIZES.minTouchTarget);
+    /* And the token is actually used, so the literals are not the only floors present. */
+    const tokenFloors = [...rules.matchAll(/min-height:\s*var\(--size-min-touch-target\)/g)];
+    expect(tokenFloors.length).toBeGreaterThan(4);
   });
 
-  it("keeps tactical and disclosure controls at or above 44px", () => {
-    expect(rules).toMatch(/\.tactical-options button\s*\{[^}]*min-height:\s*44px/);
-    expect(rules).toMatch(/\.disclosure\s*\{[^}]*min-height:\s*44px/);
+  it("keeps tactical and disclosure controls at or above the floor", () => {
+    expect(rules).toMatch(/\.tactical-options button\s*\{[^}]*min-height:\s*var\(--size-min-touch-target\)/);
+    expect(rules).toMatch(/\.disclosure\s*\{[^}]*min-height:\s*var\(--size-min-touch-target\)/);
   });
 
   it("uses no :hover rule for any affordance", () => {

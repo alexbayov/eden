@@ -1,21 +1,21 @@
 /* EDEN combat + campaign shell styles.
    M3-C UX remediation: the tactical command panel is now visible on every breakpoint (it holds
-   the only reload/clear-malfunction controls), all interactive targets are >=44px, no affordance
+   the only reload/clear-malfunction controls), all interactive targets are >=var(--size-min-touch-target), no affordance
    depends on :hover, and layouts are tuned for 390x844 (iPhone 12/13/14) and desktop. */
 
 /* ---------------------------------------------------------------- foundation */
 .game-shell {
   min-height: 100vh;
   padding: 24px 30px;
-  color: #effaff;
-  background: radial-gradient(circle at 40% 20%, #1b3948 0, #09151d 50%, #050a0f 100%);
+  color: var(--color-text-white);
+  background: radial-gradient(circle at 40% 20%, var(--color-surface-cool-bright) 0, var(--color-surface-deep) 50%, var(--color-surface-deepest) 100%);
 }
 .game-shell header {
   display: flex;
   max-width: 1400px;
   margin: auto;
   padding-bottom: 18px;
-  border-bottom: 1px solid #355262;
+  border-bottom: 1px solid var(--color-border-cool-dim);
   justify-content: space-between;
   align-items: end;
   gap: 16px;
@@ -25,7 +25,7 @@
 .label {
   font: 700 11px/1.3 ui-monospace, monospace;
   letter-spacing: 0.18em;
-  color: #84b7c7;
+  color: var(--color-accent-slate);
 }
 .game-shell h1 {
   margin: 6px 0 0;
@@ -36,12 +36,12 @@
   margin: 18px 0 6px;
   font-size: 13px;
   letter-spacing: 0.08em;
-  color: #84b7c7;
+  color: var(--color-accent-slate);
 }
-/* 44px minimum touch target on every control, at every breakpoint. */
+/* var(--size-min-touch-target) minimum touch target on every control, at every breakpoint. */
 .game-shell button {
-  min-height: 44px;
-  min-width: 44px;
+  min-height: var(--size-min-touch-target);
+  min-width: var(--size-min-touch-target);
   cursor: pointer;
 }
 .game-shell.loading h1 {
@@ -49,7 +49,7 @@
 }
 .game-shell.loading p {
   font: 13px ui-monospace, monospace;
-  color: #bdd0d5;
+  color: var(--color-text-pale);
 }
 .turn {
   font: 12px ui-monospace, monospace;
@@ -58,10 +58,10 @@
 .turn span {
   display: block;
   margin-bottom: 5px;
-  color: #8aa2aa;
+  color: var(--color-text-slate);
 }
 .turn strong {
-  color: #ffdc83;
+  color: var(--color-accent);
 }
 .sr-only {
   position: absolute;
@@ -91,9 +91,9 @@
   min-height: 610px;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #436776;
-  background: linear-gradient(135deg, #122935, #0b1720);
-  box-shadow: inset 0 0 80px #0008;
+  border: 1px solid var(--color-border-cool-vivid);
+  background: linear-gradient(135deg, var(--color-surface-cool-alt), var(--color-surface-sunken));
+  box-shadow: inset 0 0 80px var(--color-shadow-soft);
 }
 .canvas-wrap canvas {
   display: block;
@@ -119,8 +119,8 @@
   grid-area: panel;
   min-width: 0;
   padding: 15px;
-  border: 1px solid #355767;
-  background: #0b1820e8;
+  border: 1px solid var(--color-border-dim);
+  background: var(--color-overlay-sunken);
 }
 .tactical-command-panel h2 {
   margin: 0 0 8px;
@@ -128,12 +128,12 @@
 }
 .tactical-command-panel > p {
   font-size: 13px;
-  color: #bdd0d5;
+  color: var(--color-text-pale);
 }
 .tactical-summary {
   margin: 0 0 10px;
   font: 12px/1.5 ui-monospace, monospace;
-  color: #cfe3e8;
+  color: var(--color-text-pale-bright);
 }
 .tactical-options {
   display: grid;
@@ -142,11 +142,11 @@
 }
 .tactical-options button {
   display: flex;
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
   padding: 8px 10px;
-  border: 1px solid #4c7481;
-  background: #122a34;
-  color: #d8f4f5;
+  border: 1px solid var(--color-border-muted);
+  background: var(--color-surface-cool);
+  color: var(--color-text-strong);
   text-align: left;
   flex-direction: column;
   justify-content: center;
@@ -157,16 +157,16 @@
 }
 .tactical-options button span {
   font: 12px/1.35 ui-monospace, monospace;
-  color: #a8c0c8;
+  color: var(--color-text-dim);
 }
 /* Recommended destinations are marked with a persistent border, not a hover state. */
 .tactical-options button.recommended {
-  border-color: #73dff0;
-  box-shadow: inset 3px 0 0 #73dff0;
+  border-color: var(--color-accent-cool-dim);
+  box-shadow: inset 3px 0 0 var(--color-accent-cool-dim);
 }
 .tactical-options button.active {
-  border-color: #ffdc83;
-  background: #3c3827;
+  border-color: var(--color-accent);
+  background: var(--color-surface-amber);
 }
 .tactical-options button:disabled {
   opacity: 0.7;
@@ -182,36 +182,36 @@
 */
 .tactical-options button.unavailable,
 .actions button.unavailable {
-  border-color: #3d5a64;
+  border-color: var(--color-border-cool-bright);
   opacity: 0.72;
 }
 /* The armed confirmation step of an irreversible dismantle: warm, high-contrast, never hover-only. */
 .actions button.confirming {
-  border-color: #ffb36b;
-  background: #3a2a1a;
-  color: #ffe6c7;
+  border-color: var(--color-accent-warm);
+  background: var(--color-surface-amber-deep);
+  color: var(--color-accent-cream);
 }
 .disclosure {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
   margin-top: 10px;
   padding: 10px;
-  border: 1px dashed #6fa2b3;
-  background: #10222c;
-  color: #d8f4f5;
+  border: 1px dashed var(--color-accent-slate-bright);
+  background: var(--color-surface-inset-cool);
+  color: var(--color-text-strong);
   font-size: 12px;
   text-align: center;
 }
 .equipment-state {
   margin: 6px 0 12px;
   padding: 10px 12px;
-  border-left: 3px solid #4c7481;
-  background: #0e1e27;
+  border-left: 3px solid var(--color-border-muted);
+  background: var(--color-surface-inset);
 }
 .equipment-state p {
   margin: 0 0 6px;
   font: 12px/1.55 ui-monospace, monospace;
-  color: #cfe3e8;
+  color: var(--color-text-pale-bright);
 }
 .equipment-state p:last-child {
   margin-bottom: 0;
@@ -219,16 +219,16 @@
 .tactical-help {
   font-size: 12px;
   line-height: 1.5;
-  color: #bdd0d5;
+  color: var(--color-text-pale);
 }
 
 /* ---------------------------------------------------------------- hud cards */
 .card {
   min-width: 0;
   padding: 15px;
-  border: 1px solid #355767;
-  background: #0b1820e8;
-  box-shadow: 0 8px 25px #0005;
+  border: 1px solid var(--color-border-dim);
+  background: var(--color-overlay-sunken);
+  box-shadow: 0 8px 25px var(--color-shadow-faint);
 }
 .card h2 {
   margin: 5px 0 10px;
@@ -236,22 +236,22 @@
 }
 .card p {
   font-size: 13px;
-  color: #bdd0d5;
+  color: var(--color-text-pale);
 }
 .card > b,
 .card small {
   font: 12px ui-monospace, monospace;
-  color: #c8d9dd;
+  color: var(--color-text-pale-strong);
 }
 .hp {
   height: 8px;
   margin: 12px 0 5px;
-  background: #382b30;
+  background: var(--color-surface-rose);
 }
 .hp i {
   display: block;
   height: 100%;
-  background: #ee6f64;
+  background: var(--color-danger-vivid);
 }
 .ap {
   display: flex;
@@ -262,11 +262,11 @@
 .ap i {
   width: 20px;
   height: 8px;
-  background: #28343b;
+  background: var(--color-border-neutral);
 }
 .ap .active {
-  background: #73dff0;
-  box-shadow: 0 0 8px #73dff0;
+  background: var(--color-accent-cool-dim);
+  box-shadow: 0 0 8px var(--color-accent-cool-dim);
 }
 .actions {
   display: grid;
@@ -279,23 +279,23 @@
 .overwatch,
 .outcome button,
 .inventory-panel li button {
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
   padding: 10px;
-  border: 1px solid #4c7481;
-  background: #122a34;
-  color: #d8f4f5;
+  border: 1px solid var(--color-border-muted);
+  background: var(--color-surface-cool);
+  color: var(--color-text-strong);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 .actions button.active,
 .inventory-panel li button.active {
-  border-color: #ffdc83;
-  background: #3c3827;
+  border-color: var(--color-accent);
+  background: var(--color-surface-amber);
 }
 .actions em {
   float: right;
-  color: #ffdc83;
+  color: var(--color-accent);
   font-style: normal;
 }
 .actions small {
@@ -305,16 +305,16 @@
 .breakdown {
   margin-top: 10px;
   padding: 10px;
-  background: #101f27a8;
+  background: var(--color-overlay-raised);
   font: 12px ui-monospace, monospace;
-  color: #b5c9d0;
+  color: var(--color-text-muted);
 }
 .breakdown strong {
   display: block;
   margin-top: 7px;
   padding-top: 7px;
-  border-top: 1px solid #49616c;
-  color: #ffdc83;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-accent);
 }
 /*
   W6-03 — the breakdown terms, statuses and posture prices.
@@ -337,17 +337,17 @@
 .breakdown-terms td {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: #e8f2f3;
+  color: var(--color-text);
 }
 .breakdown-terms tr.breakdown-total th,
 .breakdown-terms tr.breakdown-total td {
   padding-top: 4px;
-  border-top: 1px solid #49616c;
-  color: #ffdc83;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-accent);
 }
 .breakdown-clamp {
   margin: 6px 0 0;
-  color: #ffb08a;
+  color: var(--color-warning);
 }
 .crit-effect {
   display: block;
@@ -366,36 +366,36 @@
   flex-direction: column;
   margin-top: 4px;
   font: 12px ui-monospace, monospace;
-  color: #b5c9d0;
+  color: var(--color-text-muted);
 }
 .statuses li b {
-  color: #ffb08a;
+  color: var(--color-warning);
 }
 /*
   W7-05 — the onboarding hint.
 
   In normal flow rather than an overlay: an overlay would have to be dismissed before the player could act, which
-  is exactly the blocking behaviour criterion 2 forbids. Both controls carry the 44px floor doc 14 requires, and
+  is exactly the blocking behaviour criterion 2 forbids. Both controls carry the var(--size-min-touch-target) floor doc 14 requires, and
   the panel wraps at 360px because it sits in the same single column as everything else at that width.
 */
 .tutorial {
   margin: 8px 0;
   padding: 10px;
-  background: #14313da8;
-  border-left: 3px solid #65d7ff;
+  background: var(--color-overlay-accent);
+  border-left: 3px solid var(--color-accent-cool);
   font: 13px ui-monospace, monospace;
-  color: #d6e7ec;
+  color: var(--color-text-ice);
 }
 .tutorial b {
   display: block;
   margin-top: 4px;
-  color: #65d7ff;
+  color: var(--color-accent-cool);
 }
 .tutorial p {
   margin: 6px 0 0;
 }
 .tutorial-target {
-  color: #ffdc83;
+  color: var(--color-accent);
 }
 .tutorial .actions {
   display: flex;
@@ -405,25 +405,25 @@
 }
 .tutorial .actions button,
 .tutorial-resume {
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
 }
 
 /* W6-05 — pre-mission readiness and the restock control. */
 .readiness {
   margin-top: 8px;
   padding: 8px;
-  background: #101f27a8;
+  background: var(--color-overlay-raised);
   font: 12px ui-monospace, monospace;
-  color: #b5c9d0;
+  color: var(--color-text-muted);
 }
 .readiness[data-readiness="critical"] {
-  border-left: 3px solid #ff8a7a;
+  border-left: 3px solid var(--color-danger);
 }
 .readiness[data-readiness="warning"] {
-  border-left: 3px solid #ffb08a;
+  border-left: 3px solid var(--color-warning);
 }
 .readiness[data-readiness="ok"] {
-  border-left: 3px solid #8ad6a0;
+  border-left: 3px solid var(--color-success-soft);
 }
 .readiness ul {
   margin: 6px 0 0;
@@ -436,18 +436,18 @@
   margin-top: 5px;
 }
 .readiness li[data-issue-level="critical"] b {
-  color: #ff8a7a;
+  color: var(--color-danger);
 }
 .readiness li[data-issue-level="warning"] b {
-  color: #ffb08a;
+  color: var(--color-warning);
 }
 .restock {
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
 }
 .status-empty {
   margin: 4px 0 0;
   font: 12px ui-monospace, monospace;
-  color: #7f97a1;
+  color: var(--color-text-faint);
 }
 .fire,
 .end,
@@ -457,12 +457,12 @@
   text-align: center;
 }
 .fire {
-  border-color: #e47a68;
-  background: #85453d;
+  border-color: var(--color-danger-bright);
+  background: var(--color-danger-deep);
 }
 .overwatch {
-  border-color: #d9ad5f;
-  background: #343024;
+  border-color: var(--color-accent-deep);
+  background: var(--color-surface-amber-dim);
 }
 .fire:disabled,
 .end:disabled,
@@ -478,7 +478,7 @@
   max-width: 1400px;
   margin: 10px auto;
   font: 12px ui-monospace, monospace;
-  color: #b5c9d0;
+  color: var(--color-text-muted);
 }
 .save-status button {
   margin-left: 8px;
@@ -490,21 +490,21 @@
 .progression {
   font: 12px ui-monospace, monospace;
   letter-spacing: 0.02em;
-  color: #9fe6c4;
+  color: var(--color-success-bright);
 }
 /* The pre-return penalty notice. Colour is a supporting cue, never the only one: the text always
    states the cost, so the message is complete for a monochrome or colour-blind reader. */
 .death-penalty {
   padding: 9px 11px;
-  border-left: 3px solid #d98b6a;
-  background: rgba(217, 139, 106, 0.09);
+  border-left: 3px solid var(--color-danger-warm);
+  background: var(--color-tint-danger);
   font: 12px/1.55 ui-monospace, monospace;
-  color: #f0d3c4;
+  color: var(--color-warning-pale);
 }
 .death-penalty[data-penalty="0"] {
-  border-left-color: #6ad9a1;
-  background: rgba(106, 217, 161, 0.08);
-  color: #cfeadd;
+  border-left-color: var(--color-success);
+  background: var(--color-tint-success);
+  color: var(--color-success-pale);
 }
 /*
   W5-05 — the backpack loss preview, styled as a sibling of the XP penalty rather than merged into
@@ -518,37 +518,37 @@
 .backpack-loss {
   margin-top: 8px;
   padding: 9px 11px;
-  border-left: 3px solid #d9b46a;
-  background: rgba(217, 180, 106, 0.09);
+  border-left: 3px solid var(--color-accent-sand);
+  background: var(--color-tint-accent);
   font: 12px/1.55 ui-monospace, monospace;
-  color: #f0e5c4;
+  color: var(--color-accent-pale);
 }
 .backpack-loss[data-loss-applies="false"] {
-  border-left-color: #6ad9a1;
-  background: rgba(106, 217, 161, 0.08);
-  color: #cfeadd;
+  border-left-color: var(--color-success);
+  background: var(--color-tint-success);
+  color: var(--color-success-pale);
 }
 /* An unapproved balance number is marked in the UI, not only in a comment (decision D-01). */
 .backpack-loss[data-proposed="true"] {
   border-left-style: dashed;
 }
 .backpack-loss .loss-line {
-  color: #ffd9a8;
+  color: var(--color-accent-light);
 }
 
 /* --------------------------------------------------------------- dismantle (W5-04) */
 .dismantle-summary {
   font: 12px/1.5 ui-monospace, monospace;
-  color: #cfe3e8;
+  color: var(--color-text-pale-bright);
 }
 /* The armed confirmation banner for worn gear. `role="alert"` carries it to assistive tech; this
    only makes it impossible to miss visually as well. */
 .dismantle-confirm {
   padding: 9px 11px;
-  border-left: 3px solid #ffb36b;
-  background: rgba(255, 179, 107, 0.1);
+  border-left: 3px solid var(--color-accent-warm);
+  background: var(--color-tint-warning);
   font: 12px/1.55 ui-monospace, monospace;
-  color: #ffe6c7;
+  color: var(--color-accent-cream);
 }
 .dismantle-confirm .dismantle-cancel {
   display: block;
@@ -558,7 +558,7 @@
   display: block;
   margin-top: 3px;
   font: 11px/1.4 ui-monospace, monospace;
-  color: #a8c0c8;
+  color: var(--color-text-dim);
 }
 
 /* ------------------------------------------------------- campaign / inventory */
@@ -579,7 +579,7 @@
   grid-template-columns: repeat(4, 1fr);
 }
 .quick-slots button {
-  min-height: 44px;
+  min-height: var(--size-min-touch-target);
 }
 .mission-list {
   display: grid;
@@ -587,8 +587,8 @@
 }
 .mission-card {
   padding: 10px 12px;
-  border: 1px solid #35545f;
-  background: #0e1e27;
+  border: 1px solid var(--color-border-cool-soft);
+  background: var(--color-surface-inset);
 }
 .mission-card h3 {
   margin: 0 0 6px;
@@ -680,7 +680,7 @@
     width: auto;
     z-index: 20;
     margin: 0;
-    box-shadow: 0 -4px 18px #000a;
+    box-shadow: 0 -4px 18px var(--color-shadow-strong);
   }
   .campaign.mission-select .mission-card:first-child > button,
   .campaign.reward .campaign-grid > .card:last-child .actions > button:first-child,
@@ -701,7 +701,7 @@
     left: 0;
     width: auto;
     z-index: 20;
-    box-shadow: 0 -4px 18px #000a;
+    box-shadow: 0 -4px 18px var(--color-shadow-strong);
   }
   .combat .action-tray {
     padding-bottom: calc(64px + env(safe-area-inset-bottom));

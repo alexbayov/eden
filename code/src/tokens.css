@@ -1,0 +1,107 @@
+/*
+ * W8-01 — GENERATED from src/tokens.ts. Do not edit by hand.
+ *
+ * Regenerate with: npm run tokens:build
+ * Kept honest by tokens.test.ts, which fails when this file and the TS source disagree — the ticket forbids
+ * duplicating values in two places without a check, and discipline is not a check.
+ */
+:root {
+  --color-bg: #071017;
+  --color-surface: #0c151b;
+  --color-surface-raised: #101f27;
+  --color-surface-accent: #14313d;
+  --color-text: #e8f2f3;
+  --color-text-strong: #d8f4f5;
+  --color-text-muted: #b5c9d0;
+  --color-text-dim: #a8c0c8;
+  --color-text-faint: #7f97a1;
+  --color-accent: #ffdc83;
+  --color-accent-cool: #65d7ff;
+  --color-accent-cool-dim: #73dff0;
+  --color-accent-warm: #ffb36b;
+  --color-danger: #ff8a7a;
+  --color-warning: #ffb08a;
+  --color-success: #6ad9a1;
+  --color-border: #49616c;
+  --color-border-dim: #355767;
+  --color-border-muted: #4c7481;
+  --color-surface-deepest: #050a0f;
+  --color-surface-deep: #09151d;
+  --color-surface-sunken: #0b1720;
+  --color-surface-sunken-alt: #0b1820;
+  --color-surface-inset: #0e1e27;
+  --color-surface-inset-cool: #10222c;
+  --color-surface-cool-alt: #122935;
+  --color-surface-cool: #122a34;
+  --color-surface-cool-raised: #16303c;
+  --color-surface-neutral: #1b2a33;
+  --color-surface-cool-bright: #1b3948;
+  --color-surface-neutral-raised: #20323c;
+  --color-border-neutral: #28343b;
+  --color-border-soft: #2a3f4a;
+  --color-border-cool: #33505d;
+  --color-surface-amber-dim: #343024;
+  --color-border-cool-dim: #355262;
+  --color-border-cool-soft: #35545f;
+  --color-surface-rose: #382b30;
+  --color-surface-amber-deep: #3a2a1a;
+  --color-surface-amber: #3c3827;
+  --color-border-cool-bright: #3d5a64;
+  --color-border-cool-vivid: #436776;
+  --color-border-amber: #4a3f22;
+  --color-text-subtle: #5d7c88;
+  --color-text-subtle-strong: #6c8b96;
+  --color-accent-slate-bright: #6fa2b3;
+  --color-accent-slate: #84b7c7;
+  --color-danger-deep: #85453d;
+  --color-text-slate: #8aa2aa;
+  --color-success-soft: #8ad6a0;
+  --color-success-bright: #9fe6c4;
+  --color-text-cool: #a3b6bd;
+  --color-text-cool-strong: #b0c4cb;
+  --color-text-pale: #bdd0d5;
+  --color-text-pale-strong: #c8d9dd;
+  --color-text-pale-bright: #cfe3e8;
+  --color-success-pale: #cfeadd;
+  --color-text-ice: #d6e7ec;
+  --color-danger-warm: #d98b6a;
+  --color-accent-deep: #d9ad5f;
+  --color-accent-sand: #d9b46a;
+  --color-danger-bright: #e47a68;
+  --color-danger-vivid: #ee6f64;
+  --color-text-white: #effaff;
+  --color-warning-pale: #f0d3c4;
+  --color-accent-pale: #f0e5c4;
+  --color-accent-light: #ffd9a8;
+  --color-accent-cream: #ffe6c7;
+  --color-tint-danger: #d98b6a17;
+  --color-tint-success: #6ad9a114;
+  --color-tint-accent: #d9b46a17;
+  --color-tint-warning: #ffb36b1a;
+  --color-overlay-sunken: #0b1820e8;
+  --color-overlay-raised: #101f27a8;
+  --color-overlay-accent: #14313da8;
+  --color-shadow-faint: #0005;
+  --color-shadow-soft: #0008;
+  --color-shadow-strong: #000a;
+  --size-min-touch-target: 44px;
+  --size-focus-ring: 3px;
+  --size-border-width: 1px;
+  --size-accent-bar-width: 3px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 10px;
+  --space-xl: 14px;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 17px;
+  --font-lg: 18px;
+  --font-xl: 23px;
+  --font-display: 30px;
+  --breakpoint-narrow: 430px;
+  --breakpoint-sticky-cta: 760px;
+  --breakpoint-stacked: 1100px;
+  --breakpoint-wide: 1400px;
+  --breakpoint-short-landscape: 480px;
+}
