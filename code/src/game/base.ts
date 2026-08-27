@@ -31,7 +31,6 @@ export const normalizeBase = (base: Partial<BaseState> | undefined): BaseState =
 export const appliedUpgrades = (base: BaseState, upgrades: readonly BaseUpgradeDefinition[] = []) => upgrades.filter((entry) => entry.targetLevel <= base[entry.node])
 export const capacityBonusOf = (upgrade: BaseUpgradeDefinition) => upgrade.effect.kind === 'stash-capacity' ? upgrade.effect.capacityBonus : 0
 export const healBonusOf = (upgrade: BaseUpgradeDefinition) => upgrade.effect.kind === 'medbay-heal' ? upgrade.effect.healBonus : 0
-export const recipeTierOf = (upgrade: BaseUpgradeDefinition) => upgrade.effect.kind === 'workbench-recipe-tier' ? upgrade.effect.recipeLevel : 0
 /** Stash itself is unlimited; its upgrades grow the mission backpack budget in this slice. */
 export const storageCapacity = (base: BaseState, upgrades: readonly BaseUpgradeDefinition[] = []) => BASE_BACKPACK_CAPACITY + appliedUpgrades(base, upgrades).reduce((sum, entry) => sum + capacityBonusOf(entry), 0)
 export const isNodeUnlocked = (base: BaseState, node: BaseNode, level: number) => base[node] >= level
