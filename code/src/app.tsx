@@ -149,7 +149,7 @@ import { useQuickSlot } from "./game/quick-slot";
 import { buildQuickSlotBar, quickSlotShortcutLabel } from "./game/quick-slot-view";
 import { dismantleEquipment, dismantleItem, linkedEquipmentInstanceIds } from "./game/dismantle";
 import { buildDismantlePanel } from "./game/dismantle-view";
-import { PROPOSED_BACKPACK_LOSS_POLICY } from "./game/death-loss";
+import { BACKPACK_LOSS_POLICY } from "./game/death-loss";
 import { buildDeathLossView } from "./game/death-loss-view";
 import { createEncounterUnits } from "./game/encounter";
 import { campaignCatalogFor, campaignMissionsOf } from "./game/campaign-catalog";
@@ -177,6 +177,12 @@ interface Catalog {
   returnTables: ReturnTableDefinition[];
   equipment: EquipmentCatalog;
   progression: ProgressionCatalog;
+  /**
+   * W7-01 — zone id → position from `zones.json`, carried so the render path sequences the campaign exactly as
+   * boot did. Recomputing it here from `missions` is impossible (a mission's `order` restarts at 1 per zone) and
+   * omitting it would make mission transitions disagree with the validated save.
+   */
+  zoneOrderById: ReadonlyMap<string, number>;
 }
 /** Mission-start units. Shared with the balance simulator so both build identical state. */
 const initialUnits = createEncounterUnits;
@@ -215,15 +221,26 @@ const saveCatalogFor = (catalog: Catalog) =>
     items: catalog.items,
     equipment: catalog.equipment,
     progression: catalog.progression.curve,
+    /* Zone positions must survive a reset too: without them `createCampaign` cannot sequence a multi-zone catalog and
+       the recovery path throws instead of producing a fresh save. */
+    zoneOrderById: catalog.zoneOrderById,
   });
 
-/** Level + progress-to-next, rendered identically on the base and reward screens (W4-01 §4). */
+/**
+ * Level + progress-to-next, rendered identically on the base and reward screens (W4-01 §4).
+ *
+ * **Unspent skill points are deliberately not shown (decision D-02, 27 August 2026).** Skills, SPECIAL
+ * and perks are post-MVP, so there is nothing to spend a point on; the balance still *accrues* and
+ * persists `unspentSkillPoints` (`progression.ts`, save schema) so that shipping W4-03/W4-04 later is
+ * not a save-compatibility problem. Advertising a counter the player cannot act on reads as an
+ * unfinished screen, which is exactly what the number would be until those tickets land.
+ */
 const levelSummary = (character: CharacterState, catalog: Catalog | null) => {
   const curve = catalog?.progression.curve;
   const toNext = xpToNextLevel(character.xp, curve);
   return `Уровень ${character.level} · XP ${character.xp}${
     toNext === null ? " · максимальный уровень" : ` · до уровня ${character.level + 1}: ${toNext} XP`
-  } · нераспределённых очков: ${character.unspentSkillPoints}`;
+  }`;
 };
 const itemLabel = (id: string, catalog: Catalog) =>
   catalog.items.find((item) => item.id === id)?.name ??
@@ -395,7 +412,7 @@ export function App() {
   });
   const campaign = bootView.ready?.campaign ?? LOADING_CAMPAIGN;
   const character = save?.character ?? LOADING_CHARACTER;
-  const campaignMissions = catalog ? campaignMissionsOf(catalog.missions) : undefined;
+  const campaignMissions = catalog ? campaignMissionsOf(catalog.missions, catalog.zoneOrderById) : undefined;
   /** W6-01 — the persisted half of objective progress; everything else is derived from the board. */
   const objectiveState = save?.objective ?? initialObjectiveState();
   const inventory = save?.inventory;
@@ -496,15 +513,14 @@ export function App() {
    *
    * `buildDeathLossView` runs the pure `applyBackpackDeathLoss` once and carries the resulting
    * inventory, so `returnHome` commits exactly the list this screen displayed instead of recomputing
-   * it (criterion 4). The policy is `PROPOSED_BACKPACK_LOSS_POLICY` and is rendered as an explicit
-   * proposal: decision D-01 is open, so the number is labelled rather than presented as balance.
+   * it (criterion 4). The policy is `BACKPACK_LOSS_POLICY`, approved by decision D-01.
    */
   const pendingLoss = useMemo(
     () =>
       campaign.screen === "return" && inventory && catalog
         ? buildDeathLossView({
             inventory,
-            policy: PROPOSED_BACKPACK_LOSS_POLICY,
+            policy: BACKPACK_LOSS_POLICY,
             reason: campaign.returnReason,
             firstDeathReturnUsed: campaign.firstDeathReturnUsed,
             labelFor: (itemId) => itemLabel(itemId, catalog),
@@ -566,7 +582,7 @@ export function App() {
   };
   const retrySave = () => {
     if (!save) return;
-    const candidate = save.phase === "enemy" && arena ? resolveEnemyPhase(save, arena) : save;
+    const candidate = save.phase === "enemy" && arena ? resolveEnemyPhase(save, arena, objectiveResolution, campaignMissions) : save;
     const result = saveAdapter.saveDetailed(candidate);
     setSaveStatus(
       result.ok
@@ -942,7 +958,9 @@ export function App() {
     const state = handlers.nextObjective ?? objectiveState;
     const evaluation = evaluateObjective(objectiveContextFor(nextUnits, state, nextTurn));
     if (evaluation.outcome === "complete") {
-      const nextCampaign = missionVictory(campaign, catalog.missions);
+      /* `campaignMissions`, not `catalog.missions`: only the former carries each zone's position, which is what decides
+         whether this victory closes a zone boundary and opens the next zone. */
+      const nextCampaign = missionVictory(campaign, campaignMissions);
       if (!persist(nextUnits, "victory", nextCampaign, nextInventory, base, nextTurn, nextRngState, arena, character, evaluation.state))
         return false;
       setTargetId(null);
@@ -1055,7 +1073,9 @@ export function App() {
     if (!arena || !inventory || !base) return;
      /* W6-01: the enemy phase now also advances the objective clock — a `secure` hold is counted per
         resolved turn, and a `retrieve`/`escape` deadline expires on one. */
-     const resolved = resolveEnemyPhase(snapshot, arena, objectiveResolution);
+     /* `campaignMissions` carries each zone's position, so a victory closes *this* zone's boundary rather than the
+        campaign's — the zone-blind fallback inside `session.ts` cannot tell the two apart. */
+     const resolved = resolveEnemyPhase(snapshot, arena, objectiveResolution, campaignMissions);
      if (!persist(
        resolved.units,
        resolved.phase,
@@ -1140,7 +1160,7 @@ export function App() {
     const selected = catalog.missions.find((entry) => entry.id === missionId);
     const selectedArena = selected && catalog.arenas.byId.get(selected.arenaId);
     if (!selected || !selectedArena) return setLog("Карта encounter не найдена в каталоге.");
-    const nextCampaign = startMission(campaign, selected.id, catalog.missions);
+    const nextCampaign = startMission(campaign, selected.id, campaignMissions);
     if (nextCampaign === campaign) return;
      if (!persist(initialUnits(selectedArena, catalog.equipment, inventory, units), "player", nextCampaign, inventory, base, 1, save?.rngState ?? 0, selectedArena)) return;
      setTargetId(null);
@@ -1459,7 +1479,15 @@ const arenas = await loadArenaCatalog(
         const playableMissions = validatedCatalog.missions.filter((mission) => unlockedZones.has(mission.zoneId));
         if (!playableMissions.length) throw new ContentValidationError("shape", [{ path: "missions", message: "должна быть доступная encounter" }]);
         if (cancelled) return;
-        const campaignMissions = campaignMissionsOf(playableMissions);
+        /**
+         * W7-01 — zone positions, so a multi-zone campaign is sequenced zone by zone.
+         *
+         * A mission's `order` is its index *within* its zone (the catalog validator requires each zone to
+         * start at 1), so it repeats across zones and cannot order the campaign by itself. Taken from
+         * `zones.json`, which `validateZoneOrder` has already proven to be sequential from 1.
+         */
+        const zoneOrderById = new Map(validatedCatalog.zones.map((zone) => [zone.id, zone.order]));
+        const campaignMissions = campaignMissionsOf(playableMissions, zoneOrderById);
         const catalogOptions = {
           campaignCatalog: campaignCatalogFor({
             catalogId: arenas.catalogId,
@@ -1469,6 +1497,7 @@ const arenas = await loadArenaCatalog(
             items,
             equipment,
             progression: progression.curve,
+            zoneOrderById,
           }),
         };
         saveAdapter.setValidationOptions(catalogOptions);
@@ -1477,7 +1506,7 @@ const arenas = await loadArenaCatalog(
            as it was found, not as it will be after the upgrade write below. */
         const upgradeFromLegacyKey = saveAdapter.hasPendingUpgrade();
         const loaded = saveAdapter.load(fallback.arenaId, catalogOptions);
-        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, itemEffects, returnTables, equipment, progression };
+        const appCatalog: Catalog = { missions: playableMissions, rewards: validatedCatalog.rewards, arenas, upgrades, recipes, items, itemEffects, returnTables, equipment, progression, zoneOrderById };
         if (loaded && !loaded.ok) {
           const backupSucceeded = saveAdapter.backupCorrupt();
           setRecovery({ error: loaded.error, backupSucceeded, content: false });
@@ -1489,7 +1518,7 @@ const arenas = await loadArenaCatalog(
         const original = loaded?.value;
         const persistedArena = original && arenas.byId.get(original.arenaId);
         const resumeArena = original?.activeEncounterId ? arenas.byId.get(original.arenaId) : undefined;
-        const resumed = original?.phase === "enemy" && resumeArena ? resumePersistedEnemyPhase(saveAdapter, original, resumeArena) : original;
+        const resumed = original?.phase === "enemy" && resumeArena ? resumePersistedEnemyPhase(saveAdapter, original, resumeArena, undefined, campaignMissions) : original;
         if (original?.phase === "enemy" && !resumed) {
           setArena(persistedArena ?? arenas.byId.get(fallback.arenaId) ?? null);
           setCatalog(appCatalog);
@@ -2241,10 +2270,10 @@ const arenas = await loadArenaCatalog(
                   confirms. This is a preview only in the UI sense: `pendingLoss.inventory` is the
                   exact object `returnHome` commits, so the list and the outcome are one computation.
 
-                  The rule is marked as a proposal in the DOM (`data-proposed`) and in the visible
-                  text, because decision D-01 is open. What is *not* taken is stated as well: a
-                  penalty screen that only names losses invites the assumption that the base was
-                  raided too.
+                  The rule itself is stated plainly now that decision D-01 has approved the rate; the
+                  former `data-proposed` marker went with the decision. What is *not* taken is stated
+                  as well: a penalty screen that only names losses invites the assumption that the
+                  base was raided too.
                 */}
                 {pendingLoss && (
                   <p
@@ -2254,7 +2283,6 @@ const arenas = await loadArenaCatalog(
                     data-loss-units={pendingLoss.lostUnits}
                     data-carried-units={pendingLoss.carriedUnits}
                     data-loss-rate={pendingLoss.ratePercent}
-                    data-proposed={pendingLoss.proposed}
                   >
                     {pendingLoss.applies ? (
                       <>

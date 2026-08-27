@@ -28,17 +28,44 @@ export interface CampaignCatalogSources {
    * building a minimal fixture), which then fall back to the shipped curve mirrored in code.
    */
   progression?: LevelCurve
+  /**
+   * Zone id → position from `zones.json`, required once a build ships more than one zone.
+   *
+   * It belongs here rather than being recomputed by the save validator: the validator compares a save's encounter
+   * sequence against `missions`, so if the two disagreed about zone order it would reject saves the game itself
+   * produces.
+   */
+  zoneOrderById?: ReadonlyMap<string, number>
 }
 
-export const campaignMissionsOf = (missions: readonly MissionDefinition[]): CampaignMission[] =>
-  missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId }))
+/**
+ * Campaign missions from validated mission definitions, carrying each zone's position.
+ *
+ * `zoneOrder` comes from `zones.json` via `zoneOrderById` rather than from the mission, because a mission's
+ * `order` is its index *within* its zone (the catalog validator requires each zone to start at 1) and therefore
+ * cannot order a multi-zone campaign on its own. Callers with a single zone may omit the map: `ordered` in
+ * `campaign.ts` collapses to `order` when no zone position is present, which is exactly the pre-multi-zone
+ * behaviour, and it throws rather than guesses if several zones arrive without positions.
+ */
+export const campaignMissionsOf = (
+  missions: readonly MissionDefinition[],
+  zoneOrderById?: ReadonlyMap<string, number>,
+): CampaignMission[] =>
+  missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({
+    id,
+    zoneId,
+    order,
+    ...(zoneOrderById?.has(zoneId) ? { zoneOrder: zoneOrderById.get(zoneId) } : {}),
+    rewardId,
+    arenaId,
+  }))
 
 export function campaignCatalogFor(sources: CampaignCatalogSources): CampaignCatalog {
   const { catalogId, missions, items, equipment } = sources
   const armorFor = (armorId: string) => equipment.armor.find((entry) => entry.id === armorId)
   return {
     catalogId,
-    missions: campaignMissionsOf(missions),
+    missions: campaignMissionsOf(missions, sources.zoneOrderById),
     missionIds: new Set(missions.map((entry) => entry.id)),
     rewardIds: new Set(sources.rewardIds),
     arenaIds: new Set(sources.arenaIds),

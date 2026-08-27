@@ -26,6 +26,15 @@ export interface ObjectiveResolution {
  * already checked that list against the real catalog — the order, the ids and the reward links are the
  * catalog's, verified at load.
  */
+/**
+ * Fallback mission list for callers that have no catalog to hand.
+ *
+ * **Zone-blind, and only correct for a single-zone campaign.** It assigns every encounter the *active* zone's id,
+ * because `campaign.encounters` records no zone of its own. With one shipped zone that is exactly right; with two it
+ * makes `missionVictory` see one long zone and close the boundary only at the end of the whole campaign — the defect
+ * W7-01 fixed. So every caller that can supply the real list now does (`missions` parameter below), and this exists
+ * only for the ones that genuinely cannot, where the campaign it reconstructs is also the one it describes.
+ */
 const missionsOf = (campaign: CampaignState): CampaignMission[] =>
   campaign.encounters.map((entry, index) => ({
     id: entry.id,
@@ -44,8 +53,12 @@ const missionsOf = (campaign: CampaignState): CampaignMission[] =>
  *
  * `objective` is passed in rather than read off the mission catalog, because this module has no catalog
  * and should not grow one: the caller already knows which mission is active.
+ *
+ * `missions` is the campaign's real mission list, and callers with a catalog must supply it: the zone-blind fallback
+ * (`missionsOf`) cannot tell where one zone ends and the next begins, which is what decides whether winning here opens
+ * the next zone.
  */
-export function resolveEnemyPhase(save: SaveData, arena: ArenaConfig, objective: ObjectiveResolution = { params: { kind: 'eliminate' } }): SaveData {
+export function resolveEnemyPhase(save: SaveData, arena: ArenaConfig, objective: ObjectiveResolution = { params: { kind: 'eliminate' } }, missions?: readonly CampaignMission[]): SaveData {
   // Enemy resolution is meaningful only for a persisted active mission snapshot. This also
   // protects callers outside React from an impossible home/mission-select enemy transition.
   if (save.phase !== 'enemy' || save.campaign.screen !== 'mission' || save.campaign.mission.status !== 'active') return save
@@ -65,7 +78,7 @@ export function resolveEnemyPhase(save: SaveData, arena: ArenaConfig, objective:
  /* A hold that completed on the enemy's clock ends the mission here, not on the player's next action:
     the point was held for the required turns and waiting for a click would be a lie about when. */
  if (evaluation.outcome === 'complete')
-   return { ...save, rngState, units, inventory, phase: 'victory', turn, campaign: missionVictory(save.campaign, missionsOf(save.campaign)), objective: initialObjectiveState() }
+   return { ...save, rngState, units, inventory, phase: 'victory', turn, campaign: missionVictory(save.campaign, missions ?? missionsOf(save.campaign)), objective: initialObjectiveState() }
  /* A deadline that expired is the third outcome (W6-01 criterion 4): the hero is alive, nothing was
     lost in combat, and the encounter is `failed` and retryable. */
  if (evaluation.outcome === 'failed')
@@ -85,16 +98,16 @@ export function persistTransition(adapter: SaveAdapter, next: SaveData): Persist
  return result.ok ? { ok: true, value: next } : { ok: false, error: result.error ?? "unknown save failure" }
 }
 export function persistEnemyPhase(adapter: SaveAdapter, save: SaveData): SaveData | null { const enemy = beginEnemyPhase(save); return enemy && persistTransition(adapter, enemy).ok ? enemy : null }
-export function resumePersistedEnemyPhase(adapter: SaveAdapter, save: SaveData, arena: ArenaConfig, objective?: ObjectiveResolution): SaveData | null { if (save.phase !== 'enemy') return save; const resolved = resolveEnemyPhase(save, arena, objective); return persistTransition(adapter, resolved).ok ? resolved : null }
+export function resumePersistedEnemyPhase(adapter: SaveAdapter, save: SaveData, arena: ArenaConfig, objective?: ObjectiveResolution, missions?: readonly CampaignMission[]): SaveData | null { if (save.phase !== 'enemy') return save; const resolved = resolveEnemyPhase(save, arena, objective, missions); return persistTransition(adapter, resolved).ok ? resolved : null }
 
 export interface EnemyPhaseCoordinator { begin: () => boolean; resolve: () => SaveData | null }
 /** Application-level pure orchestration: persist the exact enemy snapshot before any timer is scheduled. */
-export function createEnemyPhaseCoordinator(current: SaveData, adapter: SaveAdapter, schedule: (callback: () => void) => void, arena: ArenaConfig, onResolved: (save: SaveData) => void, objective?: ObjectiveResolution): EnemyPhaseCoordinator {
+export function createEnemyPhaseCoordinator(current: SaveData, adapter: SaveAdapter, schedule: (callback: () => void) => void, arena: ArenaConfig, onResolved: (save: SaveData) => void, objective?: ObjectiveResolution, missions?: readonly CampaignMission[]): EnemyPhaseCoordinator {
  let locked = false
  let snapshot: SaveData | null = null
  const resolve = () => {
   if (!snapshot) return null
-  const resolved = resolveEnemyPhase(snapshot, arena, objective)
+  const resolved = resolveEnemyPhase(snapshot, arena, objective, missions)
   if (!persistTransition(adapter, resolved).ok) return null
   snapshot = null
   locked = false

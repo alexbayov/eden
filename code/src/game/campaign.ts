@@ -27,13 +27,39 @@ export type ReturnReason = 'defeat' | 'retreat' | null
  * runtime can ever flip it, so "locked until the previous zone is cleared" was not expressible.
  */
 export interface CampaignState { catalogId: string; screen: CampaignScreen; activeMissionId: string | null; activeMapId: string | null; mission: MissionProgress; encounters: MissionProgress[]; zone: ZoneProgress; zones: ZoneProgressEntry[]; firstDeathReturnUsed: boolean; returnReason: ReturnReason; xp: number; claimedRewards: string[] }
-export interface CampaignMission { id: string; zoneId: string; order: number; rewardId: string; mapId?: string; arenaId?: string }
+/**
+ * `order` is the mission's position **inside its zone**, and `zoneOrder` is its zone's position in the campaign.
+ *
+ * Both are needed because `validateCampaignCatalog` requires every zone to number its encounters from 1, so
+ * `order` alone does not identify a position in a multi-zone campaign: with two zones it repeats. Sorting by
+ * `order` alone was the shipped behaviour and it interleaved the zones — a two-zone build sequenced as
+ * `zone1-1, zone2-1, zone1-2, …`, which made the second zone's first encounter reachable before the first zone
+ * was finished. Found by walking two zones as data; see `requireMissions`.
+ */
+export interface CampaignMission { id: string; zoneId: string; order: number; zoneOrder?: number; rewardId: string; mapId?: string; arenaId?: string }
 
-const ordered = (missions: readonly CampaignMission[]) => [...missions].sort((a, b) => a.order - b.order)
+/**
+ * Campaign sequence: zones in `zoneOrder`, encounters in `order` within a zone.
+ *
+ * `zoneOrder` is optional so that every single-zone caller (and every fixture that predates multi-zone content)
+ * keeps its exact previous behaviour: with one zone the first key is constant and the sort collapses to `order`.
+ * It is *not* defaulted for multi-zone input — see `requireMissions`, which refuses that case rather than
+ * guessing an order, because guessing here silently changes which encounter a player can enter.
+ */
+export const orderedCampaignMissions = <T extends Pick<CampaignMission, 'order' | 'zoneOrder'>>(missions: readonly T[]): T[] =>
+  [...missions].sort((a, b) => (a.zoneOrder ?? 0) - (b.zoneOrder ?? 0) || a.order - b.order)
+const ordered = orderedCampaignMissions
 const mapIdOf = (mission: CampaignMission) => mission.arenaId ?? mission.mapId ?? mission.id
 const requireMissions = (missions: readonly CampaignMission[]) => {
   const sequence = ordered(missions)
   if (!sequence.length) throw new Error('Campaign catalog must contain at least one mission.')
+  /*
+   * A multi-zone catalog without zone positions has no defined sequence, and every candidate default is wrong:
+   * array order depends on how the file was authored, and `order` repeats per zone. Failing loudly is the point —
+   * the alternative is a campaign whose unlock order is decided by a sort tie-break.
+   */
+  if (new Set(sequence.map((mission) => mission.zoneId)).size > 1 && sequence.some((mission) => mission.zoneOrder === undefined))
+    throw new Error('Campaign catalog spans several zones, so every mission must carry zoneOrder.')
   if (sequence.some((mission) => !mission.id || !mission.zoneId || !mission.rewardId || !mapIdOf(mission))) throw new Error('Campaign catalog contains an invalid mission.')
   return sequence
 }

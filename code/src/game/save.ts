@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { AP_MAX, type Posture, type Statuses, type Unit } from "./combat";
 import { isOverwatchState } from "./combat-overwatch";
-import { createCampaign, type CampaignMission, type CampaignState } from "./campaign";
+import { createCampaign, orderedCampaignMissions, type CampaignMission, type CampaignState } from "./campaign";
 import { defaultBase, isValidBase, type BaseState } from "./base";
 import { createInventory, isEquipmentSlot, isResourceId, type EquipmentInstance, type EquipmentSlot, type Inventory } from "./inventory";
 import { DEFAULT_RNG_STATE } from "./rng";
@@ -362,7 +362,18 @@ function validateCampaign(value: unknown, issues: SaveIssue[], catalog: Campaign
     const expectedZone = catalog.missions[0]?.zoneId;
     if (record(value.zone) && string(expectedZone) && value.zone.id !== expectedZone) issue(issues, "$.campaign.zone.id", "id зоны из runtime mission catalog");
   }
-  if (Array.isArray(value.encounters) && record(value.zone) && value.zone.status === "completed" && value.zone.id !== value.encounters.map((entry: unknown) => record(entry) ? catalog.missions.find((mission) => mission.id === entry.id)?.zoneId : undefined).find((zoneId): zoneId is string => Boolean(zoneId))) issue(issues, "$.campaign.zone.id", "зона соответствует encounter catalog");
+  /*
+   * A `completed` active zone must name a zone the encounter catalog actually knows.
+   *
+   * It used to be compared against the zone of the **first** entry in `campaign.encounters`, which silently meant "a
+   * finished campaign is always in zone one". True with one shipped zone, and wrong for every later zone: finishing the
+   * campaign in the last zone was rejected as malformed. Membership is the real rule — *which* zone may be completed is
+   * already decided by the ladder checks (`$.campaign.zones`), which enforce order and agreement with `zone`.
+   */
+  if (Array.isArray(value.encounters) && record(value.zone) && value.zone.status === "completed") {
+    const catalogZoneIds = new Set(catalog.missions.map((mission) => mission.zoneId));
+    if (string(value.zone.id) && !catalogZoneIds.has(value.zone.id)) issue(issues, "$.campaign.zone.id", "зона соответствует encounter catalog");
+  }
   if (catalog.catalogId && value.catalogId !== catalog.catalogId) issue(issues, "$.campaign.catalogId", "неверный catalog id");
 
   const byId = new Map<string, Record<string, any>>();
@@ -372,8 +383,17 @@ function validateCampaign(value: unknown, issues: SaveIssue[], catalog: Campaign
     byId.set(entry.id, entry);
     const expectedRewardId = catalog.rewardIdForMission(entry.id);
     const expectedArenaId = catalog.arenaIdForMission(entry.id);
-    const expectedZoneId = catalog.missions.find((mission) => mission.id === entry.id)?.zoneId;
-    if (!catalog.missionIds.has(entry.id) || entry.rewardId !== expectedRewardId || entry.mapId !== expectedArenaId || entry.arenaId !== expectedArenaId || (record(value.zone) && entry.id && expectedZoneId !== value.zone.id)) issue(issues, `$.campaign.encounters[${index}]`, "точная ссылка на каталог и текущую zone");
+    /*
+     * W7-01/D-03 — an encounter must reference its catalog exactly, and that is *all* this check asserts.
+     *
+     * It used to additionally require every stored encounter's zone to equal the **active** `zone.id`. That was
+     * indistinguishable from correct while the build shipped one zone, and it made a second zone unrepresentable:
+     * `campaign.encounters` covers the whole catalog (asserted just below), so as soon as two zones exist some
+     * encounter necessarily belongs to a zone the player is not standing in. The active zone is still validated —
+     * against the zone *ladder*, which is the thing that actually knows which zone is current — near
+     * `$.campaign.zone`. Conflating the two questions here is what hid that.
+     */
+    if (!catalog.missionIds.has(entry.id) || entry.rewardId !== expectedRewardId || entry.mapId !== expectedArenaId || entry.arenaId !== expectedArenaId) issue(issues, `$.campaign.encounters[${index}]`, "точная ссылка на каталог");
   }
   if (entries.length !== catalog.missions.length) issue(issues, "$.campaign.encounters", "точное покрытие каталога миссий");
   for (const definition of catalog.missions) {
@@ -381,7 +401,10 @@ function validateCampaign(value: unknown, issues: SaveIssue[], catalog: Campaign
     if (!entry) issue(issues, `$.campaign.encounters.${definition.id}`, "отсутствует миссия из каталога");
   }
 
-  const orderedMissions = [...catalog.missions].sort((left, right) => left.order - right.order);
+  /* The *same* sequence rule the campaign uses (`orderedCampaignMissions`), not a copy of it: this loop decides
+     which encounter may be unlocked, so a validator that ordered missions differently from the game would reject
+     saves the game itself produces. With one zone it is still `order` alone. */
+  const orderedMissions = orderedCampaignMissions(catalog.missions);
   const claimedRewards = Array.isArray(value.claimedRewards) ? value.claimedRewards.filter((reward): reward is string => typeof reward === "string") : [];
   const claimedRewardSet = new Set(claimedRewards);
   if (claimedRewardSet.size !== claimedRewards.length) issue(issues, "$.campaign.claimedRewards", "уникальные reward id");

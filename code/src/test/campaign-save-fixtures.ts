@@ -29,7 +29,7 @@ import type { ArenaConfig } from "../game/content";
 import { hydrateArenaUnits, syncEquipmentInstances } from "../game/equipment-content";
 import { assignQuickSlot, createInventory } from "../game/inventory";
 import { nextRandom } from "../game/rng";
-import type { CampaignState, MissionProgress, MissionStatus } from "../game/campaign";
+import { orderedCampaignMissions, type CampaignState, type MissionProgress, type MissionStatus } from "../game/campaign";
 import { characterForXp } from "../game/progression";
 import { initialObjectiveState, type ObjectiveState } from "../game/objective";
 import { defaultSave, validateSave, SAVE_SCHEMA_VERSION, type SaveData } from "../game/save";
@@ -161,9 +161,19 @@ const progressFor = (content: ShippedContent, encounterId: string, plan: Encount
   };
 };
 
-/** Encounters ordered by catalog `order`, which is the sequence the validator enforces. */
-export const orderedEncounters = (content: ShippedContent) =>
-  [...content.missions].sort((left, right) => left.order - right.order);
+/**
+ * Encounters in the sequence the validator enforces: zones in `zones.json` order, encounters by `order` within a
+ * zone.
+ *
+ * Uses the production rule (`orderedCampaignMissions`) rather than sorting by `order`, which repeats across zones and
+ * therefore interleaved them the moment a second zone shipped.
+ */
+export const orderedEncounters = (content: ShippedContent) => {
+  const zoneOrder = new Map(content.zones.map((zone) => [zone.id, zone.order]));
+  return orderedCampaignMissions(
+    content.missions.map((mission) => ({ ...mission, zoneOrder: zoneOrder.get(mission.zoneId) })),
+  );
+};
 
 /**
  * Default per-encounter statuses for a linear zone: everything before `index` completed and
@@ -200,16 +210,28 @@ export const xpForRewards = (content: ShippedContent, claimed: readonly string[]
  */
 
 /**
- * The zone ladder a fixture should carry: every shipped zone in catalog order, with the encounter's own zone set
- * from `zoneStatus` and later zones locked.
+ * The zone ladder a fixture should carry: zones before the active one completed, the active one carrying `status`,
+ * and later zones locked.
+ *
+ * `activeZoneId` is required because the ladder has to agree with the encounter the fixture is built around — the save
+ * validator rejects a payload whose `zone` names a different zone than the ladder's available entry, and it refuses a
+ * ladder where a later zone is open while an earlier one is locked. The previous version hard-coded the *first* zone
+ * as the active one, which was indistinguishable from correct with one shipped zone and produced impossible saves for
+ * every zone-two encounter.
  */
-const zoneLadderFor = (content: ShippedContent, status: "available" | "completed") => {
+const zoneLadderFor = (
+  content: ShippedContent,
+  status: "available" | "completed",
+  activeZoneId: string,
+) => {
   const seen: string[] = []
-  for (const mission of content.missions) if (!seen.includes(mission.zoneId)) seen.push(mission.zoneId)
+  for (const mission of orderedEncounters(content)) if (!seen.includes(mission.zoneId)) seen.push(mission.zoneId)
+  const activeIndex = Math.max(0, seen.indexOf(activeZoneId))
   return seen.map((id, index) => ({
     id,
     order: index + 1,
-    status: index === 0 ? status : ("locked" as const),
+    status:
+      index < activeIndex ? ("completed" as const) : index === activeIndex ? status : ("locked" as const),
   }))
 }
 
@@ -281,7 +303,7 @@ export function buildSave(content: ShippedContent, options: SaveFixtureOptions):
     catalogId: content.arenas.catalogId,
     /* W7-01: the ladder implied by the shipped zones, with the active zone reflecting `zoneStatus` so a fixture
        cannot describe a state where the two disagree — the save validator refuses that. */
-    zones: zoneLadderFor(content, zoneStatus),
+    zones: zoneLadderFor(content, zoneStatus, mission.zoneId),
     screen: options.screen,
     activeMissionId: activeScreen ? encounterId : null,
     activeMapId: activeScreen ? mission.arenaId : null,

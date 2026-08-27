@@ -226,10 +226,17 @@ describe('W7-01 a persisted ladder cannot be edited into a skip', () => {
 })
 
 describe('W7-01 the campaign transition closes a zone at its own boundary', () => {
+  /*
+   * Numbered the way shippable content has to be: `order` restarts at 1 in every zone, and `zoneOrder` carries the
+   * zone's position. The earlier version of this fixture numbered zone two's encounter `order: 3`, i.e. it continued
+   * a single global sequence — which `validateCampaignCatalog` rejects ("последовательный порядок внутри зоны с 1").
+   * So this test passed while describing a catalog that could not ship, and it hid the fact that the campaign
+   * sequenced zones by `order` alone. With real numbering that sort interleaves the zones.
+   */
   const MISSIONS: CampaignMission[] = [
-    { id: 'a1', zoneId: 'z1', order: 1, rewardId: 'r1', arenaId: 'm' },
-    { id: 'a2', zoneId: 'z1', order: 2, rewardId: 'r2', arenaId: 'm' },
-    { id: 'b1', zoneId: 'z2', order: 3, rewardId: 'r3', arenaId: 'm' },
+    { id: 'a1', zoneId: 'z1', zoneOrder: 1, order: 1, rewardId: 'r1', arenaId: 'm' },
+    { id: 'a2', zoneId: 'z1', zoneOrder: 1, order: 2, rewardId: 'r2', arenaId: 'm' },
+    { id: 'b1', zoneId: 'z2', zoneOrder: 2, order: 1, rewardId: 'r3', arenaId: 'm' },
   ]
   const win = (state: ReturnType<typeof createCampaign>, id: string) => {
     const started = startMission(state, id, MISSIONS)
@@ -285,5 +292,56 @@ describe('W7-01 the campaign transition closes a zone at its own boundary', () =
     )
     expect(campaign.zone.status).toBe('completed')
     expect(isCampaignComplete(campaign.zones)).toBe(true)
+  })
+
+  it('sequences zone by zone instead of interleaving them (D-03 defect)', () => {
+    /*
+     * The defect that made a second zone unshippable, pinned directly.
+     *
+     * Because `validateCampaignCatalog` requires every zone to number its encounters from 1, mission `order`
+     * repeats across zones — so ordering the campaign by `order` alone produced `z1-1, z2-1, z1-2, z2-2, …`. The
+     * consequence was not cosmetic: `missionVictory` opens the *next* mission in that sequence, so clearing the
+     * first encounter of zone one unlocked the first encounter of zone two, and the zone ladder was bypassable
+     * through the encounter list. This is asserted as a whole sequence rather than a spot check because the bug was
+     * an ordering, not a single wrong status.
+     */
+    const twoZones: CampaignMission[] = [
+      { id: 'z1-1', zoneId: 'z1', zoneOrder: 1, order: 1, rewardId: 'r11', arenaId: 'm' },
+      { id: 'z1-2', zoneId: 'z1', zoneOrder: 1, order: 2, rewardId: 'r12', arenaId: 'm' },
+      { id: 'z2-1', zoneId: 'z2', zoneOrder: 2, order: 1, rewardId: 'r21', arenaId: 'm' },
+      { id: 'z2-2', zoneId: 'z2', zoneOrder: 2, order: 2, rewardId: 'r22', arenaId: 'm' },
+    ]
+    expect(createCampaign(twoZones, 'test-catalog').encounters.map((entry) => entry.id)).toEqual([
+      'z1-1',
+      'z1-2',
+      'z2-1',
+      'z2-2',
+    ])
+    /* The sequence is a property of the data, not of how the file happened to be written. */
+    const authoredOutOfOrder = [twoZones[2], twoZones[0], twoZones[3], twoZones[1]]
+    expect(createCampaign(authoredOutOfOrder, 'test-catalog').encounters.map((entry) => entry.id)).toEqual([
+      'z1-1',
+      'z1-2',
+      'z2-1',
+      'z2-2',
+    ])
+    /* Zone two's opener stays locked until zone one is finished, which is what the interleaving broke. */
+    const opened = missionVictory(startMission(createCampaign(twoZones, 'test-catalog'), 'z1-1', twoZones), twoZones)
+    expect(opened.encounters.find((entry) => entry.id === 'z2-1')?.status).toBe('locked')
+    expect(opened.encounters.find((entry) => entry.id === 'z1-2')?.status).toBe('available')
+  })
+
+  it('refuses a multi-zone catalog with no zone positions rather than guessing one', () => {
+    /* Every available default is wrong: array order is an authoring accident and `order` repeats per zone. A
+       campaign whose unlock order came from a sort tie-break is exactly the failure this replaces. */
+    const missingZoneOrder: CampaignMission[] = [
+      { id: 'a', zoneId: 'z1', order: 1, rewardId: 'r1', arenaId: 'm' },
+      { id: 'b', zoneId: 'z2', order: 1, rewardId: 'r2', arenaId: 'm' },
+    ]
+    expect(() => createCampaign(missingZoneOrder, 'test-catalog')).toThrow(/zoneOrder/)
+    /* A single-zone catalog still needs none, so existing content and fixtures are untouched. */
+    expect(() =>
+      createCampaign([{ id: 'a', zoneId: 'only', order: 1, rewardId: 'r1', arenaId: 'm' }], 'test-catalog'),
+    ).not.toThrow()
   })
 })

@@ -170,7 +170,15 @@ export interface PersistedSave {
     firstDeathReturnUsed: boolean;
     /** Added by save v5 (W4-02): why the return screen was reached. */
     returnReason: "defeat" | "retreat" | null;
+    /** The *active* zone. Kept in step with `zones` by the save validator. */
     zone: { id: string; status: string };
+    /**
+     * The zone ladder, added by save v7 (W7-01): every zone in the build with its unlock state.
+     *
+     * Missing from this type until D-03 shipped a second zone, which is why no spec could assert on the ladder — the
+     * field existed in the payload and in the validator but not in the shape the E2E helpers described.
+     */
+    zones: Array<{ id: string; order: number; status: string }>;
     mission: { id: string; status: string; victories: number; firstRewardClaimed: boolean };
     encounters: Array<{ id: string; status: string; victories: number; firstRewardClaimed: boolean }>;
   };

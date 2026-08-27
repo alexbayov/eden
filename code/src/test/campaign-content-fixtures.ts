@@ -38,9 +38,9 @@ import { parseProgression, type ProgressionCatalog } from "../game/progression";
 import type { BaseUpgradeDefinition, RecipeDefinition } from "../game/base";
 import {
   parseEquipmentCatalog,
-  weaponById,
   type EquipmentCatalog,
 } from "../game/equipment-content";
+import { campaignCatalogFor } from "../game/campaign-catalog";
 import type { CampaignCatalog } from "../game/save";
 
 /**
@@ -163,6 +163,7 @@ export function loadShippedContent(overrides: ContentOverrides = {}): ShippedCon
       equipment,
       arenas,
       progression,
+      zoneOrderById: new Map(validated.zones.map((zone) => [zone.id, zone.order])),
     }),
   };
 }
@@ -179,30 +180,28 @@ export function shippedCampaignCatalog(input: {
   equipment: EquipmentCatalog;
   arenas: ArenaCatalog;
   progression: ProgressionCatalog;
+  /**
+   * Zone id → position, required once the build ships more than one zone. Optional so that fixtures which
+   * deliberately construct a single-zone catalog stay unchanged.
+   */
+  zoneOrderById?: ReadonlyMap<string, number>;
 }): CampaignCatalog {
-  const { missions, rewards, items, equipment, arenas, progression } = input;
-  const armorFor = (itemId: string) => equipment.armor.find((entry) => entry.id === itemId);
-  return {
-    catalogId: arenas.catalogId,
-    missions: missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId })),
-    missionIds: new Set(missions.map((entry) => entry.id)),
-    rewardIds: new Set(rewards.map((entry) => entry.id)),
-    arenaIds: new Set(arenas.all.map((entry) => entry.id)),
-    zoneIds: new Set(missions.map((entry) => entry.zoneId)),
-    itemIds: new Set(items.map((entry) => entry.id)),
-    itemWeightForId: (itemId: string) => items.find((entry) => entry.id === itemId)?.weight,
-    weaponIds: new Set(equipment.weapons.map((entry) => entry.id)),
-    weaponForId: (weaponId: string) => weaponById(equipment, weaponId) ?? undefined,
-    armorIds: new Set(equipment.armor.map((entry) => entry.id)),
-    armorSlotForId: (itemId: string) => {
-      const slot = armorFor(itemId)?.slot;
-      return slot === "head" || slot === "torso" ? slot : undefined;
-    },
-    armorForId: (armorId: string) => armorFor(armorId),
-    ammoIds: new Set(equipment.ammo.map((entry) => entry.id)),
-    ammoForId: (ammoId: string) => equipment.ammo.find((entry) => entry.id === ammoId),
-    progression: progression.curve,
-    rewardIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.rewardId,
-    arenaIdForMission: (missionId: string) => missions.find((entry) => entry.id === missionId)?.arenaId,
-  };
+  /*
+   * Delegates to the production `campaignCatalogFor` instead of rebuilding the object field by field.
+   *
+   * It used to be a hand-written copy, and the copy drifted the moment a second zone shipped: it omitted `zoneOrder`,
+   * so every fixture built a campaign the game would sequence differently from the one the save validator checked.
+   * The docblock promised "field for field the same object `App` passes" — delegation is how that promise becomes
+   * structural instead of maintained by hand.
+   */
+  return campaignCatalogFor({
+    catalogId: input.arenas.catalogId,
+    missions: input.missions,
+    rewardIds: input.rewards.map((entry) => entry.id),
+    arenaIds: input.arenas.all.map((entry) => entry.id),
+    items: input.items,
+    equipment: input.equipment,
+    progression: input.progression.curve,
+    zoneOrderById: input.zoneOrderById,
+  });
 }

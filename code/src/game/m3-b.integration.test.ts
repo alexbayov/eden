@@ -1,17 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseArenaContent, validateArenaCatalog } from './content'
-import { validateMissions } from './campaign-content'
+import { validateMissions, validateZones } from './campaign-content'
 import { claimReward, createCampaign, missionDefeat, missionVictory, returnFromMission, startMission, type CampaignMission } from './campaign'
 import { awardReward } from './rewards'
 import { characterForXp } from './progression'
 import { createLocalStorageAdapter, createMemoryStorage, defaultSave, validateSave } from './save'
 
 const shipped = (name: string) => JSON.parse(readFileSync(new URL(`../../public/config/${name}.json`, import.meta.url), 'utf8')) as unknown
+/** Shipped missions with each zone's position, so a multi-zone catalog sequences zone by zone. */
 const catalog = () => {
   const missions = validateMissions(shipped('missions'))
   if (!missions.ok) throw missions.error
-  return missions.value.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, rewardId, arenaId })) satisfies CampaignMission[]
+  const zones = validateZones(shipped('zones'))
+  if (!zones.ok) throw zones.error
+  const zoneOrder = new Map(zones.value.map((zone) => [zone.id, zone.order]))
+  return missions.value.map(({ id, zoneId, order, rewardId, arenaId }) => ({ id, zoneId, order, zoneOrder: zoneOrder.get(zoneId), rewardId, arenaId })) satisfies CampaignMission[]
 }
 const mapFor = (mission: CampaignMission) => parseArenaContent(shipped(mission.arenaId!))
 const catalogOptions = (missions: readonly CampaignMission[]) => ({ campaignCatalog: {
@@ -19,6 +23,9 @@ const catalogOptions = (missions: readonly CampaignMission[]) => ({ campaignCata
   missionIds: new Set(missions.map(({ id }) => id)),
   rewardIds: new Set(missions.map(({ rewardId }) => rewardId)),
   arenaIds: new Set(missions.map(({ arenaId }) => arenaId!)),
+  /* Required once the build ships more than one zone: without it `validateSave` takes its single-zone branch and
+     insists every encounter belongs to `missions[0]`'s zone, which rejects any save past zone one. */
+  zoneIds: new Set(missions.map(({ zoneId }) => zoneId)),
   rewardIdForMission: (id: string) => missions.find((entry) => entry.id === id)?.rewardId,
   arenaIdForMission: (id: string) => missions.find((entry) => entry.id === id)?.arenaId,
 } })

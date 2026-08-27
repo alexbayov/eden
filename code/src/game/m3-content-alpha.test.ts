@@ -38,16 +38,21 @@ const shipped = (name: string) =>
 const missionResult = validateMissions(shipped("missions"));
 if (!missionResult.ok) throw missionResult.error;
 const missions = missionResult.value;
+const zoneResult = validateZones(shipped("zones"));
+if (!zoneResult.ok) throw zoneResult.error;
+const zoneOrderById = new Map(zoneResult.value.map((zone) => [zone.id, zone.order]));
+/* `zoneOrder` is required once the build ships more than one zone: a mission's `order` restarts at 1 per zone. */
 const campaignMissions = missions.map(({ id, zoneId, order, rewardId, arenaId }) => ({
   id,
   zoneId,
   order,
+  zoneOrder: zoneOrderById.get(zoneId),
   rewardId,
   arenaId,
 }));
 
 describe("M3-B near-perimeter content alpha", () => {
-  it("validates all catalog links and all three shipped maps", () => {
+  it("validates all catalog links and every shipped map", () => {
     const zones = validateZones(shipped("zones"));
     const rewards = validateRewards(shipped("rewards"));
     const items = validateItems(shipped("items"));
@@ -79,13 +84,20 @@ describe("M3-B near-perimeter content alpha", () => {
     const placed = maps.map(
       (map) => map.units.filter((unit) => unit.team === "enemy")[0]?.archetypeId,
     );
-    expect(placed).toHaveLength(3);
+    /* Counted off the catalog, not hardcoded: D-03 took the build from three encounters to six, and pinning the
+       number here is what made this assertion fail on new content rather than on a real defect. */
+    expect(placed).toHaveLength(missions.length);
     for (const archetypeId of placed) {
       expect(archetypeId, "every map places a real archetype").toBeDefined();
       expect(archetypeIds.has(archetypeId!), `unknown archetype ${archetypeId}`).toBe(true);
     }
-    /* And the three maps use three *different* archetypes, so the zone is not one enemy repeated. */
-    expect(new Set(placed).size).toBe(3);
+    /* No zone is one enemy repeated: each zone leads its encounters with distinct archetypes. */
+    for (const zone of new Set(missions.map((mission) => mission.zoneId))) {
+      const leads = missions
+        .filter((mission) => mission.zoneId === zone)
+        .map((mission) => parseArenaContent(shipped(mission.arenaId)).units.filter((unit) => unit.team === "enemy")[0]?.archetypeId);
+      expect(new Set(leads).size, `zone ${zone} repeats a lead archetype`).toBe(leads.length);
+    }
   });
 
   it("rejects invalid mission zone, arena, reward, and order references before boot", () => {
@@ -130,11 +142,10 @@ describe("M3-B near-perimeter content alpha", () => {
 
   it("locks encounters in order, returns to base, retries failures, and awards once", () => {
     let state = createCampaign(campaignMissions, 'test-catalog');
-    expect(state.encounters.map((entry) => entry.status)).toEqual([
-      "available",
-      "locked",
-      "locked",
-    ]);
+    /* Derived from the catalog length: only the first encounter is open, everything after it is locked. Spelling the
+       list out pinned the encounter count, so shipping zone two failed here instead of at a real rule. */
+    const onlyFirstOpen = campaignMissions.map((_mission, index) => (index === 0 ? "available" : "locked"));
+    expect(state.encounters.map((entry) => entry.status)).toEqual(onlyFirstOpen);
     expect(startMission(state, "collapsed-yard", campaignMissions)).toBe(state);
     state = startMission(state, campaignMissions[0].id, campaignMissions);
     state = missionDefeat(state);
@@ -145,11 +156,9 @@ describe("M3-B near-perimeter content alpha", () => {
     state = missionVictory(state, campaignMissions);
     state = claimReward(state, "perimeter-checkpoint-clear", 30);
     expect(state.screen).toBe("home");
-    expect(state.encounters.map((entry) => entry.status)).toEqual([
-      "completed",
-      "available",
-      "locked",
-    ]);
+    expect(state.encounters.map((entry) => entry.status)).toEqual(
+      campaignMissions.map((_mission, index) => (index === 0 ? "completed" : index === 1 ? "available" : "locked")),
+    );
     expect(claimReward(state, "perimeter-checkpoint-clear", 30)).toBe(state);
   });
 
