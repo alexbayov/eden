@@ -16,11 +16,11 @@
 
 | Что | Значение | Как проверено |
 |---|---|---|
-| `npm test` | **39 файлов / 565 тестов**, все зелёные | прогон |
+| `npm test` | **40 файлов / 585 тестов**, все зелёные | прогон |
 | — project `node` | 32 файла / 454 теста | прогон `--project node` |
 | — project `dom` | 5 файлов / 72 теста | прогон `--project dom` |
 | `npm run verify` | проходит целиком, exit 0 | прогон; с `W7-02` включает `validate:content` |
-| `npm run test:e2e` | **12 файлов / 124 теста** в Chromium, зелёные (~2.8 мин) | **прогон**, не только `--list` |
+| `npm run test:e2e` | **14 файлов / 132 теста** в Chromium, зелёные (~3.0 мин) | **прогон**, не только `--list` |
 | Бюджет | initial JS **57.4 kB** gzip, ленивый бой 349.7 kB gzip | `analyze:budget` |
 | Save schema | **v7** (`eden.save.v7`), цепочка v3→v4→v5→v6→v7 | `save.test.ts` |
 | CI | оба job (`verify`, `e2e`) зелёные | GitHub Actions |

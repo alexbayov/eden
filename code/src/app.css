@@ -694,7 +694,15 @@
     Scoped to `.campaign.home`, not to the panel alone: the home card is also mounted on
     `mission-select`, which already pins its own «НАЧАТЬ», and two fixed bars would stack.
   */
-  .campaign.home .home-panel .primary-actions > button:last-child {
+  /*
+    Targeted by class, not by `:last-child`.
+
+    W9-03 added a settings button after «ВЫБРАТЬ МИССИЮ», which silently became the last child — so the fixed bar
+    pinned the *settings* control and the actual CTA fell to y=932 on a 640px viewport, outside the fold. A positional
+    selector made the layout depend on button order, which is exactly the kind of coupling that breaks when a screen
+    gains a control. Found by `viewport-geometry.spec.ts`.
+  */
+  .campaign.home .home-panel .primary-actions > button.mission-cta {
     position: fixed;
     right: 0;
     bottom: calc(12px + env(safe-area-inset-bottom));
@@ -791,4 +799,76 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+  W9-04 — accessibility options.
+
+  Scale is applied as a root font-size multiplier rather than a CSS `zoom` or `transform`. `zoom` is
+  non-standard and `transform: scale()` would scale the *layout box* too, producing horizontal overflow at
+  150% on a 360px viewport — which is precisely what criterion 2 forbids. Driving `font-size` lets rem-based
+  sizing grow while the layout keeps reflowing into the available width.
+*/
+:root {
+  --ui-scale: 1;
+}
+html[data-ui-scale="125"] {
+  font-size: calc(100% * 1.25);
+}
+html[data-ui-scale="150"] {
+  font-size: calc(100% * 1.5);
+}
+html[data-large-text="true"] .card,
+html[data-large-text="true"] .tactical-command-panel {
+  font-size: 1.08em;
+}
+/*
+  Reduced motion as a *setting*, not only as a system query. The existing `@media (prefers-reduced-motion)`
+  block stays: the query says what the system prefers, this says what the player chose here, and either alone
+  is a reason to stop animating.
+
+  Transitions are removed and animations collapsed to a single final frame — motion goes, information stays
+  (criterion 3), which is why nothing here sets `display: none` or `visibility: hidden`.
+*/
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+/* The settings screen itself. */
+.settings-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: var(--size-border-width) solid var(--color-border-dim);
+}
+.settings-list button {
+  min-height: var(--size-min-touch-target);
+  min-width: var(--size-min-touch-target);
+}
+.settings-list .settings-reason {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--font-xs);
+}
+.settings-list li[data-enabled="false"] {
+  color: var(--color-text-faint);
+}
+.settings-reset-confirm {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-overlay-raised);
+  border-left: var(--size-accent-bar-width) solid var(--color-danger);
 }

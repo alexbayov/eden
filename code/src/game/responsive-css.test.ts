@@ -158,7 +158,7 @@ describe("M3-C mobile layout for 390x844", () => {
     expect(phone).toContain(".campaign.mission-select .mission-card:first-child > button");
     expect(phone).toContain(".campaign.reward .campaign-grid > .card:last-child .actions > button:first-child");
     expect(phone).toContain(".campaign.return .campaign-grid > .card:last-child .actions > button:first-child");
-    expect(phone).toContain(".campaign.home .home-panel .primary-actions > button:last-child");
+    expect(phone).toContain(".campaign.home .home-panel .primary-actions > button.mission-cta");
     expect(phone).toMatch(/\.campaign\.home[^{]*\{[^}]*position:\s*fixed/);
     /* The tray and the campaign grid each reserve room, so a pinned CTA cannot cover the last row. */
     expect(phone).toMatch(/\.combat\s+\.action-tray\s*\{[^}]*padding-bottom/);

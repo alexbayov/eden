@@ -30,6 +30,16 @@ import {
 import { OVERWATCH_ACTIVATION_AP, buildOverwatchView } from "./game/combat-overwatch";
 import { missionReadiness, restockAmmo } from "./game/combat-logistics";
 import {
+  DEFAULT_SETTINGS,
+  SETTINGS_STORAGE_KEY,
+  buildSettingsControls,
+  nextScale,
+  parseSettings,
+  resetProgressKeys,
+  settingsEffect,
+  type Settings,
+} from "./game/settings";
+import {
   TUTORIAL_STORAGE_KEY,
   advanceTutorial,
   buildTutorialView,
@@ -300,6 +310,62 @@ export function App() {
       return initialTutorialState();
     }
   });
+  /**
+   * W9-03 — settings, under their own key and never in the save.
+   *
+   * Read defensively: `parseSettings` falls back field by field, so one bad value cannot discard the rest and a
+   * corrupt file cannot stop the boot (criterion 2).
+   */
+  const [settings, setSettings] = useState<Settings>(() => {
+    try {
+      const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+      return parseSettings(raw ? (JSON.parse(raw) as unknown) : null);
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const persistSettings = (next: Settings) => {
+    setSettings(next);
+    /* A full localStorage must not break the game; the preference simply does not survive the session. */
+    try {
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignored on purpose */
+    }
+  };
+  /*
+   * Applied to `<html>` so CSS can select on it and the token overrides cascade to everything. An effect rather than
+   * inline styles because the high-contrast theme replaces *custom properties*, which only work from an ancestor.
+   */
+  useEffect(() => {
+    const effect = settingsEffect(settings);
+    const root = document.documentElement;
+    for (const [name, value] of Object.entries(effect.attributes)) root.setAttribute(name, value);
+    for (const [name, value] of Object.entries(effect.properties)) root.style.setProperty(name, value);
+    return () => {
+      for (const name of Object.keys(effect.properties)) root.style.removeProperty(name);
+    };
+  }, [settings]);
+  const settingsControls = buildSettingsControls({ settings });
+  /**
+   * W9-03 criterion 3 — a progress reset removes **only** game saves.
+   *
+   * `resetProgressKeys` filters by prefix, so settings and the tutorial preference are excluded by construction
+   * rather than by remembering: wiping a campaign does not mean the player wants the interface back at 100% with
+   * hints re-enabled, and W7-05 established that a reset must not re-teach the controls.
+   */
+  const resetProgress = () => {
+    try {
+      for (const key of resetProgressKeys(Object.keys(window.localStorage)))
+        window.localStorage.removeItem(key);
+    } catch {
+      /* ignored on purpose */
+    }
+    setConfirmingReset(false);
+    window.location.reload();
+  };
   const persistTutorial = (next: TutorialState) => {
     setTutorial(next);
     /* A full localStorage must not break the game: the tutorial simply reappears next session. */
@@ -1769,7 +1835,15 @@ const arenas = await loadArenaCatalog(
                     </button>
                   ))}
                   <button onClick={medbay}>МЕДОТСЕК — БИНТ ИЗ STASH</button>
-                  <button onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
+                  <button class="mission-cta" onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
+                  <button
+                    type="button"
+                    class="settings-open"
+                    aria-expanded={settingsOpen}
+                    onClick={() => setSettingsOpen(!settingsOpen)}
+                  >
+                    {settingsOpen ? "ЗАКРЫТЬ НАСТРОЙКИ" : "НАСТРОЙКИ"}
+                  </button>
                   {/* W7-05 — switching hints off has to be reversible, or the control is a trap rather than a
                       preference. Offered on the base screen only: it is settings-shaped, not a combat action. */}
                   {(tutorial.dismissed || tutorial.completed) && (
@@ -2001,6 +2075,96 @@ const arenas = await loadArenaCatalog(
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {/*
+            W9-03 — the settings screen.
+
+            Rendered in the base flow rather than as a modal: a modal would have to trap focus and be dismissed before
+            play could continue, and there is no reason for a preferences panel to interrupt anything. Every row states
+            its current value, and a control that cannot act yet says why (criterion 4) instead of silently doing
+            nothing.
+          */}
+          {settingsOpen && (
+            <div class="card settings" data-settings-open="true">
+              <span class="label">НАСТРОЙКИ</span>
+              <ul class="settings-list">
+                {settingsControls.map((control) => (
+                  <li key={control.id} data-setting={control.id} data-enabled={control.enabled}>
+                    <b>{control.label}</b>
+                    <span data-setting-value={control.value}>{control.value}</span>
+                    {control.kind === "volume" && (
+                      <button
+                        type="button"
+                        aria-disabled={!control.enabled}
+                        aria-label={control.ariaLabel}
+                        onClick={() =>
+                          control.enabled &&
+                          persistSettings({
+                            ...settings,
+                            [control.id]: (((settings[control.id as "musicVolume" | "sfxVolume"] as number) + 10) % 110),
+                          })
+                        }
+                      >
+                        +10%
+                      </button>
+                    )}
+                    {control.kind === "scale" && (
+                      <button
+                        type="button"
+                        aria-label={control.ariaLabel}
+                        onClick={() => persistSettings({ ...settings, uiScale: nextScale(settings.uiScale) })}
+                      >
+                        СЛЕДУЮЩИЙ МАСШТАБ
+                      </button>
+                    )}
+                    {control.kind === "toggle" && (
+                      <button
+                        type="button"
+                        aria-pressed={settings[control.id as "highContrast" | "reducedMotion" | "largeText"]}
+                        aria-label={control.ariaLabel}
+                        onClick={() =>
+                          persistSettings({
+                            ...settings,
+                            [control.id]: !settings[control.id as "highContrast" | "reducedMotion" | "largeText"],
+                          })
+                        }
+                      >
+                        ПЕРЕКЛЮЧИТЬ
+                      </button>
+                    )}
+                    {control.kind === "danger" && (
+                      <button
+                        type="button"
+                        class="settings-reset"
+                        aria-label={control.ariaLabel}
+                        onClick={() => setConfirmingReset(true)}
+                      >
+                        СБРОСИТЬ ПРОГРЕСС
+                      </button>
+                    )}
+                    {!control.enabled && control.reason && <p class="settings-reason">{control.reason}</p>}
+                  </li>
+                ))}
+              </ul>
+              {/* Criterion 3: destructive and therefore two-step, stating exactly what is and is not removed. */}
+              {confirmingReset && (
+                <div class="settings-reset-confirm" role="alert">
+                  <b>Сбросить прогресс кампании?</b>
+                  <p>
+                    Будет удалено только игровое сохранение. Настройки и пройденное обучение сохранятся. Действие
+                    необратимо.
+                  </p>
+                  <div class="actions">
+                    <button type="button" class="settings-reset-confirm-yes" onClick={resetProgress}>
+                      ПОДТВЕРДИТЬ СБРОС
+                    </button>
+                    <button type="button" onClick={() => setConfirmingReset(false)}>
+                      ОТМЕНИТЬ
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div class="card">
