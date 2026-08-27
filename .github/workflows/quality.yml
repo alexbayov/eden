@@ -16,6 +16,10 @@ jobs:
           cache: npm
           cache-dependency-path: code/package-lock.json
       - run: npm ci
+      # W7-02 criterion 3: content is validated in CI, and in *strict* mode here rather than the
+      # default `verify` mode. Strict promotes unreachable enemies and objective cells from warnings
+      # to errors — cheap to run and the class of defect that is worst to discover in play.
+      - run: npm run validate:content -- --strict-playability
       - run: npm run verify
 
   # Browser E2E runs after `verify`, so a lint/type/unit failure is reported in seconds
