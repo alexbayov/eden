@@ -21,14 +21,16 @@
 | `npm test` | **42 файла / 615 тестов**, все зелёные | прогон |
 | — project `node` | 37 файлов / 543 теста | прогон `--project node` |
 | — project `dom` | 5 файлов / 72 теста | прогон `--project dom` |
-| `npm run verify` | проходит целиком, exit 0 | прогон; с `W7-02` включает `validate:content` |
-| `npm run test:e2e` | **15 файлов / 139 тестов** в Chromium, зелёные (~3.0 мин) | **прогон**, не только `--list` |
+| `npm run verify` | проходит целиком, exit 0 | прогон; с `W7-02` включает `validate:content`, с `W10-04` — `analyze:release` |
+| `npm run test:e2e` | **16 файлов / 141 тест** в Chromium, зелёные (~3.2 мин) | **прогон**, не только `--list` |
 | Бюджет | initial JS **60.2 kB** gzip, ленивый бой 349.7 kB gzip | `analyze:budget` |
 | Save schema | **v7** (`eden.save.v7`), цепочка v3→v4→v5→v6→v7 | `save.test.ts` |
 | Контент | **2 зоны / 6 encounter**, `validate:content --strict-playability` чист | прогон |
+| Артефакт релиза | `analyze:release` чист: версия в бандле, нет source map, нет тестовых фикстур, состав каталогов точный | прогон; режимы отказа проверены порчей артефакта |
+| Runtime-производительность | измерена на CI, в бюджетах §6.2 | `e2e/performance.spec.ts`, отчёт в `design-data/perf/` |
 | CI | оба job (`verify`, `e2e`) зелёные | GitHub Actions |
 
-Состав E2E по файлам: `viewport-geometry` 35, `save-reload` 20, `w5-survival-loop` 11, `tutorial` 9, `campaign-failure` 9, `settings` 8, `combat-readout` 8, `overwatch` 7, `input-gating` 7, `combat-logistics` 7, `campaign-happy-path` 5, `two-zone-progression` 4, `smoke` 4, `platform-noop` 3, `corrupt-save` 2.
+Состав E2E по файлам: `viewport-geometry` 35, `performance` 2, `save-reload` 20, `w5-survival-loop` 11, `tutorial` 9, `campaign-failure` 9, `settings` 8, `combat-readout` 8, `overwatch` 7, `input-gating` 7, `combat-logistics` 7, `campaign-happy-path` 5, `two-zone-progression` 4, `smoke` 4, `platform-noop` 3, `corrupt-save` 2.
 
 > **Долг, закрытый этой правкой.** Числа ниже относились к 24 августа (263 теста, 82 E2E, schema v5) и устарели на пять пакетов работ — `W5`, `W6`, `W7-02`, `W7-05`. Этот документ объявлен владельцем чисел (§1–2), поэтому расхождение здесь означало, что **девять документов** ссылались на владельца, который сам отстал. Исторические абзацы ниже оставлены как след, но верна таблица выше.
 
