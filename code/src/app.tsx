@@ -30,6 +30,16 @@ import {
 import { OVERWATCH_ACTIVATION_AP, buildOverwatchView } from "./game/combat-overwatch";
 import { missionReadiness, restockAmmo } from "./game/combat-logistics";
 import {
+  TUTORIAL_STORAGE_KEY,
+  advanceTutorial,
+  buildTutorialView,
+  dismissTutorial,
+  initialTutorialState,
+  isTutorialState,
+  resumeTutorial,
+  type TutorialState,
+} from "./game/tutorial";
+import {
   canRetreatFromMission,
   missionDefeat,
   missionVictory,
@@ -267,6 +277,35 @@ export function App() {
    */
   const [confirmingDismantle, setConfirmingDismantle] = useState<string | null>(null);
   const [movesExpanded, setMovesExpanded] = useState(false);
+  /**
+   * W7-05 — onboarding progress, kept **outside** the save.
+   *
+   * Criterion 5 asks that the tutorial not require a special save, and that is the right model: a tutorial flag is
+   * a preference, not campaign state. It has no catalog references, no cross-field invariants, and it should
+   * survive a save reset — wiping a campaign does not unlearn the controls. So it lives under its own key and
+   * costs no schema migration.
+   *
+   * Read lazily and defensively: a malformed value falls back to "show the tutorial" rather than throwing, because
+   * a broken preference must never stop the game from booting.
+   */
+  const [tutorial, setTutorial] = useState<TutorialState>(() => {
+    try {
+      const raw = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      return isTutorialState(parsed) ? parsed : initialTutorialState();
+    } catch {
+      return initialTutorialState();
+    }
+  });
+  const persistTutorial = (next: TutorialState) => {
+    setTutorial(next);
+    /* A full localStorage must not break the game: the tutorial simply reappears next session. */
+    try {
+      window.localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignored on purpose */
+    }
+  };
   const disclosureRef = useRef<HTMLButtonElement>(null);
   const [viewportWidth, setViewportWidth] = useState(
     () => (typeof window === "undefined" ? 0 : window.innerWidth),
@@ -588,6 +627,24 @@ export function App() {
    * persistent instance. Reports rather than blocks — leaving with a nearly-broken weapon is a legitimate
    * choice; leaving *without knowing* was the defect.
    */
+  /**
+   * W7-05 — the hint due right now, derived from the board rather than from a stored step counter.
+   *
+   * A stored position would be a second source of truth about the same situation and would desync the moment the
+   * player did something out of order — which in a tactical game is most of the time. Deriving it means a hint can
+   * never describe a state the player has already left.
+   */
+  const tutorialView = buildTutorialView({
+    state: tutorial,
+    screen: campaign.screen,
+    phase,
+    hero,
+    enemiesAlive: units.filter((unit) => unit.team === "enemy" && isAlive(unit)).length,
+    hasTarget: Boolean(target),
+    /* "Has acted" is AP below a full turn: the hero has moved, shot or changed posture. */
+    heroHasActed: (hero?.ap ?? AP_PER_TURN) < AP_PER_TURN,
+    completedEncounters: campaign.encounters.filter((entry) => entry.status === "completed").length,
+  });
   const readiness = missionReadiness(
     hero,
     save?.inventory.equipment.find((entry) => entry.instanceId === hero?.armor?.armorInstanceId),
@@ -1599,6 +1656,47 @@ const arenas = await loadArenaCatalog(
           {saveStatus}{" "}
           {saveFailure && <button onClick={retrySave}>ПОВТОРИТЬ</button>}
         </p>
+          {/*
+            W7-05 — the onboarding hint.
+
+            Advisory, never a gate (criterion 2): `role="status"` rather than `alert`, no focus trap, no disabled
+            controls behind it. A tutorial that must be obeyed is worse than none in a genre whose players expect to
+            poke at things. Both controls are always present — «ПОНЯТНО» advances, «ОТКЛЮЧИТЬ ПОДСКАЗКИ» stops them
+            for good — and each is a real button, so keyboard and screen-reader users reach them like any other.
+          */}
+          {tutorialView && (
+            <section
+              class="tutorial"
+              role="status"
+              data-tutorial-step={tutorialView.step.id}
+              data-tutorial-position={tutorialView.position}
+              data-tutorial-total={tutorialView.total}
+              aria-label={tutorialView.ariaLabel}
+            >
+              <span class="label">
+                ОБУЧЕНИЕ {tutorialView.position}/{tutorialView.total}
+              </span>
+              <b>{tutorialView.step.title}</b>
+              <p>{tutorialView.step.body}</p>
+              {tutorialView.step.target && <p class="tutorial-target">Смотрите: {tutorialView.step.target}</p>}
+              <div class="actions">
+                <button
+                  type="button"
+                  class="tutorial-advance"
+                  onClick={() => persistTutorial(advanceTutorial(tutorial, tutorialView.step.id))}
+                >
+                  {tutorialView.advanceLabel}
+                </button>
+                <button
+                  type="button"
+                  class="tutorial-dismiss"
+                  onClick={() => persistTutorial(dismissTutorial(tutorial))}
+                >
+                  ОТКЛЮЧИТЬ ПОДСКАЗКИ
+                </button>
+              </div>
+            </section>
+          )}
         <section class="campaign-grid">
           <div class="card home-panel">
             <span class="label">БАЗА / ДОМАШНИЙ ЭКРАН</span>
@@ -1669,6 +1767,17 @@ const arenas = await loadArenaCatalog(
                   ))}
                   <button onClick={medbay}>МЕДОТСЕК — БИНТ ИЗ STASH</button>
                   <button onClick={openMissionSelect}>ВЫБРАТЬ МИССИЮ</button>
+                  {/* W7-05 — switching hints off has to be reversible, or the control is a trap rather than a
+                      preference. Offered on the base screen only: it is settings-shaped, not a combat action. */}
+                  {(tutorial.dismissed || tutorial.completed) && (
+                    <button
+                      type="button"
+                      class="tutorial-resume"
+                      onClick={() => persistTutorial(resumeTutorial())}
+                    >
+                      ВКЛЮЧИТЬ ПОДСКАЗКИ СНОВА
+                    </button>
+                  )}
                 </div>
                 <h3>{equipmentView.title}</h3>
                 <section class="equipment-state" data-view-id={equipmentView.id}>
@@ -2040,6 +2149,47 @@ const arenas = await loadArenaCatalog(
         {saveStatus}{" "}
         {saveFailure && <button onClick={retrySave}>ПОВТОРИТЬ</button>}
       </p>
+        {/*
+          W7-05 — the onboarding hint.
+
+          Advisory, never a gate (criterion 2): `role="status"` rather than `alert`, no focus trap, no disabled
+          controls behind it. A tutorial that must be obeyed is worse than none in a genre whose players expect to
+          poke at things. Both controls are always present — «ПОНЯТНО» advances, «ОТКЛЮЧИТЬ ПОДСКАЗКИ» stops them
+          for good — and each is a real button, so keyboard and screen-reader users reach them like any other.
+        */}
+        {tutorialView && (
+          <section
+            class="tutorial"
+            role="status"
+            data-tutorial-step={tutorialView.step.id}
+            data-tutorial-position={tutorialView.position}
+            data-tutorial-total={tutorialView.total}
+            aria-label={tutorialView.ariaLabel}
+          >
+            <span class="label">
+              ОБУЧЕНИЕ {tutorialView.position}/{tutorialView.total}
+            </span>
+            <b>{tutorialView.step.title}</b>
+            <p>{tutorialView.step.body}</p>
+            {tutorialView.step.target && <p class="tutorial-target">Смотрите: {tutorialView.step.target}</p>}
+            <div class="actions">
+              <button
+                type="button"
+                class="tutorial-advance"
+                onClick={() => persistTutorial(advanceTutorial(tutorial, tutorialView.step.id))}
+              >
+                {tutorialView.advanceLabel}
+              </button>
+              <button
+                type="button"
+                class="tutorial-dismiss"
+                onClick={() => persistTutorial(dismissTutorial(tutorial))}
+              >
+                ОТКЛЮЧИТЬ ПОДСКАЗКИ
+              </button>
+            </div>
+          </section>
+        )}
       <section class="battlefield">
         <div
           class="canvas-wrap"

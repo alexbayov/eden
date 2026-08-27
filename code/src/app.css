@@ -371,6 +371,43 @@
 .statuses li b {
   color: #ffb08a;
 }
+/*
+  W7-05 — the onboarding hint.
+
+  In normal flow rather than an overlay: an overlay would have to be dismissed before the player could act, which
+  is exactly the blocking behaviour criterion 2 forbids. Both controls carry the 44px floor doc 14 requires, and
+  the panel wraps at 360px because it sits in the same single column as everything else at that width.
+*/
+.tutorial {
+  margin: 8px 0;
+  padding: 10px;
+  background: #14313da8;
+  border-left: 3px solid #65d7ff;
+  font: 13px ui-monospace, monospace;
+  color: #d6e7ec;
+}
+.tutorial b {
+  display: block;
+  margin-top: 4px;
+  color: #65d7ff;
+}
+.tutorial p {
+  margin: 6px 0 0;
+}
+.tutorial-target {
+  color: #ffdc83;
+}
+.tutorial .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tutorial .actions button,
+.tutorial-resume {
+  min-height: 44px;
+}
+
 /* W6-05 — pre-mission readiness and the restock control. */
 .readiness {
   margin-top: 8px;
