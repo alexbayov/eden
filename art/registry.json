@@ -1,0 +1,119 @@
+{
+  "contentVersion": 1,
+  "kind": "asset-registry",
+  "entries": [
+    {
+      "id": "unit-hero",
+      "kind": "unit",
+      "path": "art/units/hero.png",
+      "size": { "width": 64, "height": 96 },
+      "states": ["idle", "hit"],
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:accentCool" }
+    },
+    {
+      "id": "unit-enemy",
+      "kind": "unit",
+      "path": "art/units/enemy.png",
+      "size": { "width": 64, "height": 96 },
+      "states": ["idle", "hit"],
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:danger" }
+    },
+    {
+      "id": "tile-near-perimeter",
+      "kind": "tile",
+      "path": "art/tiles/near-perimeter.png",
+      "size": { "width": 92, "height": 46 },
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:surfaceAccent" }
+    },
+    {
+      "id": "tile-water-line",
+      "kind": "tile",
+      "path": "art/tiles/water-line.png",
+      "size": { "width": 92, "height": 46 },
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:surfaceSunken" }
+    },
+    {
+      "id": "effect-hit",
+      "kind": "effect",
+      "path": "art/effects/hit.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:danger" }
+    },
+    {
+      "id": "effect-miss",
+      "kind": "effect",
+      "path": "art/effects/miss.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:textFaint" }
+    },
+    {
+      "id": "effect-armor",
+      "kind": "effect",
+      "path": "art/effects/armor.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:accentCoolDim" }
+    },
+    {
+      "id": "effect-status",
+      "kind": "effect",
+      "path": "art/effects/status.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:warning" }
+    },
+    {
+      "id": "effect-overwatch",
+      "kind": "effect",
+      "path": "art/effects/overwatch.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:accent" }
+    },
+    {
+      "id": "effect-malfunction",
+      "kind": "effect",
+      "path": "art/effects/malfunction.png",
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "shape", "color": "token:accentWarm" }
+    },
+    {
+      "id": "icon-ammo",
+      "kind": "icon",
+      "path": "art/ui/ammo.svg",
+      "size": { "width": 24, "height": 24 },
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "letter", "color": "token:textMuted", "glyph": "A", "monochrome": true }
+    },
+    {
+      "id": "icon-durability",
+      "kind": "icon",
+      "path": "art/ui/durability.svg",
+      "size": { "width": 24, "height": 24 },
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "letter", "color": "token:textMuted", "glyph": "D", "monochrome": true }
+    },
+    {
+      "id": "icon-objective",
+      "kind": "icon",
+      "path": "art/ui/objective.svg",
+      "size": { "width": 24, "height": 24 },
+      "author": "EDEN (procedural fallback)",
+      "license": "project-placeholder",
+      "fallback": { "type": "letter", "color": "token:textMuted", "glyph": "O", "monochrome": true }
+    }
+  ]
+}
