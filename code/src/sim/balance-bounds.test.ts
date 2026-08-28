@@ -43,6 +43,8 @@ import {
   CHAIN_TOTAL_WIN_CORRIDOR,
   ENEMY_ATTACK_PART,
   KNOWN_ONE_SHOT_WAIVERS,
+  PLAIN_ONE_SHOT_IS_FORBIDDEN,
+  nonCriticalWaivers,
   MAX_AMMO_EMPTY_RATE,
   MIN_BANDAGE_BALANCE_PER_PASS,
   MIN_METAL_BALANCE_PER_PASS,
@@ -237,17 +239,36 @@ describe('W3-05 balance bounds — single-hit lethality in the shipped arenas', 
    * deleted. Closing them is a balance decision — hero max HP, vest reduction, weapon damage or the
    * critical multiplier — and therefore belongs to `W3-04`, not to this ticket.
    */
-  it('has exactly the documented, owner-visible set of critical one-shot kills and no others', async () => {
+  it('has exactly the approved set of critical one-shot kills and no others', async () => {
+    /* **Approved as design on 28 August 2026**, not pending: see `KNOWN_ONE_SHOT_WAIVERS` for the measurement that
+       showed no single lever closes it and for why the event is acceptable. The assertion itself is unchanged and still
+       exact in both directions. */
     const violations = evaluateLethalityBounds(await arenaCases())
     expect(boundIds(violations)).toEqual([...KNOWN_ONE_SHOT_WAIVERS].sort())
-    /* Every waiver is a critical hit: a plain one-shot would be a different, worse defect and must
-       not be able to hide inside this list. */
-    for (const waiver of KNOWN_ONE_SHOT_WAIVERS) expect(waiver.endsWith(':critical')).toBe(true)
     /* The relay case specifically, because it is the encounter the requested bound named. */
     expect(KNOWN_ONE_SHOT_WAIVERS).toContain('one-shot:relay-station:relay-shooter:critical')
     /* The armoured relay defender stays inside the bound, which is the invariant
        m3-d-regressions.test.ts already locks; this asserts the two agree. */
     expect(boundIds(violations)).not.toContain('one-shot:relay-station:relay-defender:critical')
+  })
+
+  it('never waives a non-critical one-shot, whatever the waiver list says', async () => {
+    /*
+     * The half of the bound that the 28 August decision did **not** relax, asserted independently of the waiver list.
+     *
+     * Without this, the list is the only thing between the game and a plain one-shot — and a list is one line away from
+     * absorbing one. `nonCriticalWaivers` is a function over the list rather than a re-reading of it, so a future entry
+     * like `one-shot:x:y:plain` fails here even if someone adds it deliberately.
+     */
+    expect(PLAIN_ONE_SHOT_IS_FORBIDDEN).toBe(true)
+    expect(nonCriticalWaivers(), 'a plain one-shot cannot be waived').toEqual([])
+    /* And it is not vacuous: the helper does catch a plain entry if one is ever added. */
+    expect(nonCriticalWaivers(['one-shot:map:enemy:plain', 'one-shot:map:enemy:critical'])).toEqual([
+      'one-shot:map:enemy:plain',
+    ])
+    /* Measured, not only declared: no shipped case is a plain one-shot. */
+    const plainKills = (await arenaCases()).filter((entry) => !entry.critical && entry.damage >= entry.heroMaxHp)
+    expect(plainKills.map((entry) => `${entry.arenaId}:${entry.enemyId}`), 'a plain hit removes a full-HP hero').toEqual([])
   })
 })
 

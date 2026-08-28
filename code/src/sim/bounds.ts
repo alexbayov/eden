@@ -252,11 +252,14 @@ export function worstCaseEnemyHits(arenaId: string, units: readonly Unit[]): Let
 }
 
 /**
- * The v1 lethality bound: no single enemy hit may reach the hero's maximum HP, i.e. a hero at full
- * health is never removed from the encounter by one roll.
+ * The lethality bound: no single enemy hit may reach the hero's maximum HP.
  *
- * `>=` rather than `>`: damage equal to max HP kills, because `hp - damage` clamps at 0 and
- * `isAlive` is `hp > 0`.
+ * `>=` rather than `>`: damage equal to max HP kills, because `hp - damage` clamps at 0 and `isAlive` is `hp > 0`.
+ *
+ * **Scope, decided 28 August 2026 (see `KNOWN_ONE_SHOT_WAIVERS`).** The bound is evaluated over *every* case, critical
+ * and plain, and the plain half is a hard requirement: an ordinary hit that removes a full-HP hero would be a defect.
+ * The critical half is waived as approved design, so `PLAIN_ONE_SHOT_IS_FORBIDDEN` states the part that may never be
+ * waived — it exists so a future waiver cannot quietly absorb a plain one-shot by adding a line.
  */
 export function evaluateLethalityBounds(cases: readonly LethalityCase[]): BoundViolation[] {
   return cases
@@ -268,34 +271,63 @@ export function evaluateLethalityBounds(cases: readonly LethalityCase[]): BoundV
 }
 
 /**
- * Lethality violations the owner has **not** yet resolved, waived so the suite reports the state of
- * the game honestly instead of asserting something false.
+ * Critical one-shot kills, **approved as design on 28 August 2026** rather than pending.
  *
- * These are real, reachable one-shot kills, not test artefacts: any 20-damage weapon (`pm`,
- * `hornet`) crits through the starter vest for `round(20 × 1.1 × 1.5) − 3 = 30` against a hero with
- * 24 max HP. Verified end to end through the shipped AI — `runEnemyTurn` on the shipped
- * `relay-station` with a roll stub that forces hit and crit kills a full-HP hero in one action.
+ * ## What was decided, and against what
  *
- * The waiver is checked for **exact** equality against the measured violations, so it cannot rot in
- * either direction: a new one-shot fails the suite, and fixing the data also fails the suite until
- * the corresponding line is deleted here. Closing them is a balance decision (hero max HP, vest
- * reduction, weapon damage or the critical multiplier) and therefore `W3-04`'s, not this ticket's.
+ * This list used to be described as "violations the owner has not yet resolved". The decision went the other way: the
+ * requirement "no hit may remove a full-HP hero" is **withdrawn** for critical hits, and these six cases are the shipped
+ * design. That is a decision against what the documents called a defect, so the reasoning is recorded here and not only
+ * in `docs/12`.
+ *
+ * ## Why not fixed
+ *
+ * Measured, not assumed — no single lever works:
+ *
+ *   - hero `maxHp` 24 → 26/28/30: a 30-damage crit still kills; only **32** survives it (+33% survivability);
+ *   - starter vest 3 → 8: does **nothing**, because the crit multiplier applies before armour is subtracted (30 → 25);
+ *   - crit multiplier 1.5 → 1.25: 25 damage against 24 HP, still lethal.
+ *
+ * The cheapest working combination needs **three** simultaneous changes (maxHp 28 + vest 4 + crit ×1.3 = 25 damage, 3 to
+ * spare). All three sit on both sides of every exchange, so the hero would also stop killing a 16-HP enemy with one crit
+ * — which means re-measuring and almost certainly rewriting all six win-rate corridors. Rewriting corridors to fit a
+ * result is exactly what this module forbids.
+ *
+ * ## Why it is acceptable
+ *
+ * The event needs the hero at **full** HP: 30 damage against a 24 maximum is only reachable in the first exchange, before
+ * any damage taken and before any healing. Its per-shot probability is 1.8% (`yard-rusher`, from cover) to 10.8%
+ * (`relay-shooter`) — not rare, and deliberately so. Three shipped mitigations make it the price of a mistake rather than
+ * an arbitrary loss: the **first defeat is free** (`firstDeathReturnUsed`), a defeat keeps campaign progress and allows
+ * retry, and the medbay heals between encounters. The tactical lesson is legible: do not open an exchange in the open,
+ * because cover drops enemy hit chance to 12–35%.
+ *
+ * ## What is still enforced
+ *
+ * Exact equality against the measured violations, unchanged: a **new** one-shot fails the suite, and fixing the data also
+ * fails it until the line is deleted. Every entry is the same case — a `pm`/`hornet` critical through the starter vest,
+ * `round(20 × 1.1 × 1.5) − 3 = 30`. Listed individually rather than as a pattern, because a wildcard would silently
+ * absorb a genuinely new one on a future map. And `PLAIN_ONE_SHOT_IS_FORBIDDEN` keeps the non-critical half absolute.
  */
 export const KNOWN_ONE_SHOT_WAIVERS: readonly string[] = [
   'one-shot:collapsed-yard:yard-rusher:critical',
   'one-shot:perimeter-checkpoint:checkpoint-shooter:critical',
   'one-shot:relay-station:relay-shooter:critical',
-  /*
-   * Zone two (D-03) adds three of the same case, not a new one: every entry here is a `pm`/`hornet` critical through
-   * the starter vest, `round(20 × 1.1 × 1.5) − 3 = 30` against 24 max HP. They are listed individually rather than
-   * covered by a pattern because the waiver is checked for exact equality — a wildcard would silently absorb a
-   * genuinely new one-shot on a future map.
-   *
-   * Zone two does **not** widen the underlying problem: no arena in it gives an enemy a weapon that kills without a
-   * crit, which `enemy-roster.test.ts` checks separately. Closing these is still the same balance decision (hero max
-   * HP, vest reduction, weapon damage or the critical multiplier), and it is still the owner's.
-   */
+  /* Zone two (D-03) contributes three of the same case; no arena in it lets an enemy kill without a crit. */
   'one-shot:filter-works:works-runner:critical',
   'one-shot:filter-works:works-watch:critical',
   'one-shot:pumping-station:station-sentinel:critical',
 ]
+
+/**
+ * The half of the lethality bound that may **never** be waived: a non-critical hit must not remove a full-HP hero.
+ *
+ * Named and exported so the suite can assert it independently of `KNOWN_ONE_SHOT_WAIVERS`. Without it, the waiver list is
+ * the only thing standing between the game and a plain one-shot, and a waiver list is one line away from absorbing one.
+ * This is also why `sawn-shotgun` (37 damage through the starter vest) is deliberately carried by no archetype.
+ */
+export const PLAIN_ONE_SHOT_IS_FORBIDDEN = true
+
+/** Waived bounds that are *not* critical one-shots. Must always be empty — see `PLAIN_ONE_SHOT_IS_FORBIDDEN`. */
+export const nonCriticalWaivers = (waivers: readonly string[] = KNOWN_ONE_SHOT_WAIVERS): string[] =>
+  waivers.filter((entry) => !entry.endsWith(':critical'))
