@@ -162,6 +162,16 @@ export const BREAKPOINTS = {
   stacked: 1100,
   wide: 1400,
   shortLandscape: 480,
+  /**
+   * W2-F — height at or below which a viewport cannot hold a screen's content above its primary action.
+   *
+   * Distinct from `shortLandscape` (480), which only reshapes the combat canvas. This is the threshold at which the CTA
+   * itself has to be pinned: measured against the two failing viewports, 1280×720 and 800×400, whose content overruns the
+   * fold by 66–1318 px. It is deliberately *not* the only condition — `stacked` covers 768×1024, which is tall enough by
+   * this measure yet stacks its content into a ~3000 px page. Height alone was the first attempt and left that viewport
+   * broken.
+   */
+  shortViewport: 820,
 } as const
 
 /**

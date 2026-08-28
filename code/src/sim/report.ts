@@ -187,8 +187,19 @@ export function buildEconomy(
     return { resource, income, repairCost: spend, net: roundMetric(income - spend) }
   }).filter((flow) => flow.income !== 0 || flow.repairCost !== 0)
 
-  const netRepairMaterial = resources.find((flow) => flow.resource === REPAIR_MATERIAL)?.net ?? 0
-  const upgradeMetal = sources.upgrades.reduce((sum, upgrade) => sum + (upgrade.cost[REPAIR_MATERIAL] ?? 0), 0)
+  /**
+   * Total cost of every catalogued upgrade, **per resource**.
+   *
+   * It used to sum `REPAIR_MATERIAL` alone. That happened to give the right answer on the shipped catalog — metal is the
+   * slower of the two constraints (37 metal at +8.26/pass = 5 passes; 12 cloth at +4.98/pass = 3) — but it was right by
+   * accident: an upgrade made more expensive in cloth would not move the number at all, so the metric could not detect
+   * the very change it exists to price. Half the shipped upgrades already cost cloth.
+   */
+  const upgradeCost = sources.upgrades.reduce<Partial<Record<ResourceId, number>>>((totals, upgrade) => {
+    for (const [resource, amount] of Object.entries(upgrade.cost) as [ResourceId, number][])
+      totals[resource] = (totals[resource] ?? 0) + amount
+    return totals
+  }, {})
   const bandagesMean = roundMetric(mean(passStats.map((pass) => pass.bandages)))
   const bandagesNeededMean = roundMetric(mean(passStats.map((pass) => pass.bandagesNeeded)))
   const clothIncome = resources.find((flow) => flow.resource === 'cloth')?.net ?? 0
@@ -202,8 +213,21 @@ export function buildEconomy(
     bandagesCraftablePerPassMean: craftable,
     bandageBalancePerPassMean: roundMetric(bandagesMean + craftable - bandagesNeededMean),
     resources,
-    passesForAllUpgrades:
-      netRepairMaterial > 0 && upgradeMetal > 0 ? Math.ceil(upgradeMetal / netRepairMaterial) : null,
+    /*
+     * Passes needed to afford **all** upgrades: the slowest resource decides, because the upgrades are bought with every
+     * resource they cost and not only with metal. `null` when any required resource has no positive net income — that is
+     * "never at this rate", which is a different statement from a large number and must not be rounded into one.
+     */
+    passesForAllUpgrades: (() => {
+      const required = Object.entries(upgradeCost).filter(([, amount]) => (amount ?? 0) > 0) as [ResourceId, number][]
+      if (!required.length) return null
+      const passes = required.map(([resource, amount]) => {
+        const net = resources.find((flow) => flow.resource === resource)?.net ?? 0
+        return net > 0 ? Math.ceil(amount / net) : Number.POSITIVE_INFINITY
+      })
+      const worst = Math.max(...passes)
+      return Number.isFinite(worst) ? worst : null
+    })(),
     constants: {
       repairMaterial: REPAIR_MATERIAL,
       repairMaterialRate: REPAIR_MATERIAL_RATE,

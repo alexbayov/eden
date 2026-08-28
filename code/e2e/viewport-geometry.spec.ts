@@ -238,40 +238,29 @@ test.describe("W1-05 primary CTA reachability", () => {
     }
   });
 
-  test("documents the measured CTA fold position at widths above the sticky-bar breakpoint", async ({
+  test("keeps the primary CTA above the fold at every width, not only phone widths", async ({
     page,
   }) => {
-    /* FINDING, not a specification — and now scoped to the viewports where the gap survives.
+    /*
+     * W2-F — this used to be a *record of a defect* and is now a requirement.
      *
-     * The fixed bottom bar is keyed on `max-width: 760px`, so 768x1024, 1280x720 and 800x400 keep the
-     * CTA in normal flow. Below 1100px the shell stacks canvas, tactical panel and HUD into one
-     * column, and the campaign screens stack their three cards, which pushes every primary action
-     * except the base screen's past the fold. Measured at 768x1024: mission-select y≈2749, reward
-     * y≈1053, return y≈1168, against a 1024px fold.
+     * The fixed bottom bar was keyed on `max-width: 760px`, so 768x1024, 1280x720 and 800x400 kept their CTA in normal
+     * flow and lost the fold: measured overruns of 66 to 2178 px, the S2 defect in doc 24 §7.2. It is closed by a second,
+     * narrow media block that repeats *only* the pinning for viewports that are `max-width: 1100px` (stacked layout) or
+     * `max-height: 820px` (too short). Both conditions are needed and neither suffices: 1280x720 and 800x400 are short,
+     * while 768x1024 is tall enough yet stacks its content into a ~3000 px page — keying on height alone left it broken,
+     * which is how I found out.
      *
-     * 800x400 is the sharpest case and is asserted explicitly rather than folded into a generic
-     * expectation, because two different things are true of it at once: it is 800 CSS px wide, so it
-     * is *above* the sticky-bar breakpoint and gets no bottom bar, while being only 400px tall, which
-     * is less than the header plus the panel above any CTA. So it loses the fold on all five screens,
-     * base screen included. Intended policy, stated so this is not read as an accident: a sticky CTA
-     * *may* count as within the fold when it is genuinely visible unscrolled — that is what the phone
-     * widths assert above — but 800x400 gets no sticky CTA at all, so the actual measured value is
-     * asserted here, and it is `false` everywhere.
+     * The mobile layout block stayed at 760px on purpose. It also restacks the battlefield, collapses the HUD and shrinks
+     * type; dragging all of that onto a 1280x720 desktop to move one button would be an unrequested layout change.
      *
-     * Recorded rather than fixed because closing it means changing the layout (widening the sticky-bar
-     * breakpoint, or a height-based rule for short landscape), and W1-05's mandate is measurement with
-     * no gameplay or layout changes. Every entry is still asserted, so a regression fails; a fix must
-     * consciously update the table.
-     *
-     * WHY A MARGIN AND NOT ONLY A BOOLEAN. `withinFold` is a threshold on a measured pixel height, and
-     * the page height depends on text metrics: `index.css` asks for `Inter` and falls back to
-     * `ui-sans-serif`/`system-ui`, and no webfont is bundled, so a machine without Inter lays the same
-     * DOM out at a different height. A bare boolean therefore records the CI runner's font set as
-     * though it were the layout, which is how this assertion passed locally and failed on GitHub
-     * Actions after W5 made the reward screen taller. Each case now also asserts that it clears or
-     * misses the fold by more than `FOLD_STABILITY_MARGIN_PX`, so the recorded value is only trusted
-     * where it is not balanced on the threshold — and a case that lands inside the margin fails with
-     * its measurement rather than flipping silently between environments. */
+     * WHY THE MARGIN BAND SURVIVES. `withinFold` is a threshold on a measured page height, and that height depends on
+     * text metrics: `index.css` asks for `Inter`, no webfont is bundled, so a machine without it lays the same DOM out at
+     * a different height. The band is what stopped `1280x720/home` from being pinned as a comfortable pass when it was
+     * 91 px from flipping — and it did flip, to −66 px, before this fix. Now every case is pinned by the fixed bar and
+     * sits ~12 px from the fold by construction, so the band no longer excuses anything; it is kept because the reward
+     * screen's CTA is not pinned on every viewport and its margin still comes from layout.
+     */
     const foldByCase: Record<string, boolean> = {};
     const marginByCase: Record<string, number> = {};
 
@@ -317,69 +306,43 @@ test.describe("W1-05 primary CTA reachability", () => {
        that answer belongs to the machine's fonts rather than to the layout. `1280x720/home` is the
        instructive one — it reads as a comfortable pass locally and is only 91px from flipping, so
        pinning it would have been the next version of the failure this band exists to stop. */
-    const expectedFold: Record<string, boolean> = {
-      "768x1024/home": true,
-      "768x1024/mission-select": false,
-      "768x1024/return": false,
-      "768x1024/combat": false,
-      "1280x720/mission-select": false,
-      "1280x720/combat": false,
-      "1280x720/reward": false,
-      "1280x720/return": false,
-      /* Short landscape: no sticky bar (800px wide) and only 400px tall, so nothing clears. */
-      "800x400/home": false,
-      "800x400/mission-select": false,
-      "800x400/combat": false,
-      "800x400/reward": false,
-      "800x400/return": false,
-    };
-
     /*
-     * Every case is measured. A case is *asserted* only when its margin puts it clearly on one side of
-     * the fold; a case inside the band is recorded and skipped.
-     *
-     * Deliberately **not** a single `toEqual` over the whole table. Which cases are near the boundary
-     * is itself environment-dependent — substituting a serif fallback locally moves `1280x720/combat`
-     * from far below the fold to 24px from it — so comparing key sets would reintroduce exactly the
-     * font-sensitivity this is meant to remove, one level up. Per-case assertions also name the screen
-     * and print its margin on failure, instead of diffing a fifteen-entry object.
-     *
-     * The coverage floor keeps this from decaying into a test that asserts nothing: the shape of the
-     * finding (only the base screen can clear the fold, and nothing clears it at 800x400) has to remain
-     * checkable even if a few cases drift into the band.
+     * Every screen, on every viewport above the sticky breakpoint, must now clear the fold. Stated as one rule rather
+     * than a per-case table: the table existed to record which cases were broken, and none are.
      */
-    const skipped: string[] = [];
-    let asserted = 0;
-    for (const [label, expectedWithinFold] of Object.entries(expectedFold)) {
-      const margin = marginByCase[label];
+    for (const [label, margin] of Object.entries(marginByCase)) {
       expect(margin, `${label}: expected a measurement`).toBeDefined();
-      if (Math.abs(margin) <= FOLD_STABILITY_MARGIN_PX) {
-        skipped.push(`${label} (${margin.toFixed(0)}px)`);
-        continue;
-      }
-      asserted += 1;
       expect(
         foldByCase[label],
-        `${label}: CTA sits ${margin.toFixed(0)}px from the fold (${margin > 0 ? "clear of it" : "past it"}), which contradicts the recorded baseline`,
-      ).toBe(expectedWithinFold);
+        `${label}: CTA sits ${margin.toFixed(0)}px from the fold — the primary action must be reachable without scrolling`,
+      ).toBe(true);
       /* The margin's sign and the boolean are the same fact, so they must agree. */
       expect(margin > 0, `${label}: margin sign must agree with the measured fold value`).toBe(foldByCase[label]);
     }
 
-    /* Not a hard number: it states that most of the table is still doing work. If this ever fails, the
-       fix is to look at what moved — not to lower the floor. */
+    /*
+     * Coverage floor, restated for the fixed state.
+     *
+     * The font-stability band was built for CTAs positioned by *flow*, whose distance from the fold is a function of the
+     * page height and therefore of text metrics. A **pinned** CTA is 12 px from the fold by construction — `bottom:
+     * calc(12px + env(safe-area-inset-bottom))` — so it sits inside the band permanently, and no font can move it. My
+     * first version of this floor demanded 10 cases outside the band and failed with 0 of 15: the fix had made every case
+     * pinned. That is the floor measuring the wrong thing, not a regression.
+     *
+     * So the floor now asserts what actually matters: that most cases are pinned, i.e. their margin is the *small,
+     * deliberate* offset rather than a large layout-dependent one. A case drifting far from 12 px means it stopped being
+     * pinned, which is the regression this guards.
+     */
+    const pinnedMargins = Object.entries(marginByCase).filter(([, margin]) => margin >= 0 && margin <= FOLD_STABILITY_MARGIN_PX);
     expect(
-      asserted,
-      `only ${asserted} of ${Object.keys(expectedFold).length} fold cases were far enough from the boundary to assert; skipped: ${skipped.join(", ") || "none"}`,
+      pinnedMargins.length,
+      `only ${pinnedMargins.length} of ${Object.keys(marginByCase).length} CTAs sit at the pinned offset; the rest are positioned by flow and could drift past the fold`,
     ).toBeGreaterThanOrEqual(10);
-    /* Every viewport must still contribute at least one asserted case, so a whole viewport cannot go
-       unchecked by drifting into the band. */
+    /* Every viewport contributes at least one pinned case, so none can lose its bar unnoticed. */
     for (const viewport of VIEWPORTS.filter((entry) => entry.width > STICKY_CTA_WIDTH_PX))
       expect(
-        Object.keys(expectedFold).some(
-          (label) => label.startsWith(`${viewport.name}/`) && Math.abs(marginByCase[label]) > FOLD_STABILITY_MARGIN_PX,
-        ),
-        `${viewport.name}: every case drifted inside the font-stability band, so this viewport asserts nothing`,
+        pinnedMargins.some(([label]) => label.startsWith(`${viewport.name}/`)),
+        `${viewport.name}: no CTA is pinned on this viewport, so its bar was lost`,
       ).toBe(true);
   });
 

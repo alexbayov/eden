@@ -104,4 +104,5 @@
   --breakpoint-stacked: 1100px;
   --breakpoint-wide: 1400px;
   --breakpoint-short-landscape: 480px;
+  --breakpoint-short-viewport: 820px;
 }

@@ -41,7 +41,7 @@ import {
 } from './cli'
 import { loadSimulationContent } from './content-source'
 import { orderedMissions, campaignStart, missionStart, progressTo, resolveDefeat, resolveVictory } from './mission-save'
-import { renderJson, renderMarkdown, type SimulationReport } from './report'
+import { buildReport, renderJson, renderMarkdown, type SimulationReport } from './report'
 import { aggregateCombat, summarize as summarizeValues } from './metrics'
 import { deriveSeed, hashLabel } from './seed'
 import { SAVE_SCHEMA_VERSION, validateSave } from '../game/save'
@@ -380,6 +380,67 @@ describe('report contents', () => {
       const granted = content.rewards.reduce((sum, reward) => sum + (reward.resources[flow.resource] ?? 0), 0)
       expect(flow.income).toBeLessThanOrEqual(granted)
     }
+  })
+
+  it('prices base upgrades in every resource they cost, not only in metal', async () => {
+    /*
+     * The metric used to sum `REPAIR_MATERIAL` alone. On the shipped catalog that still gives the right answer — metal is
+     * the slower constraint (37 metal at +8.26 per pass = 5 passes; 12 cloth at +4.98 = 3) — so it was correct by
+     * accident and could not detect the change it exists to price. Half the shipped upgrades already cost cloth.
+     *
+     * Falsifiability: **one** measured campaign is priced against three upgrade catalogs. If cloth were still ignored the
+     * second answer would equal the first.
+     *
+     * Priced over the whole campaign rather than one encounter, because a single encounter earns no cloth and is
+     * net-negative in metal — its honest answer is `null`, which would make a cloth-only price change unobservable. The
+     * first version of this test made exactly that mistake.
+     */
+    const content = await loadSimulationContent()
+    const sequence = orderedMissions(content)
+    const arenaResults = sequence.map((mission) => {
+      const started = missionStart(content, progressTo(content, mission.id), mission.id)
+      return {
+        encounterId: mission.id,
+        arenaId: started.arena.id,
+        results: Array.from({ length: 12 }, (_unused, index) =>
+          simulateBattle({
+            arena: started.arena,
+            save: started.save,
+            policy: POLICIES[DEFAULT_POLICY],
+            seed: 12345 + index,
+            turnLimit: 40,
+            objective: { params: mission.objectiveParams, turnLimit: mission.turnLimit },
+          }),
+        ),
+      }
+    })
+    const config = { runs: 12, seed: 12345, policyId: DEFAULT_POLICY, mode: 'chain' as const, restock: false, turnLimit: 40 }
+    const priceWith = (upgrades: typeof content.upgrades) =>
+      buildReport(arenaResults, config, {
+        commit: 'test-commit',
+        contentCatalogId: content.catalogId,
+        rewards: content.rewards,
+        upgrades,
+        recipes: content.recipes,
+        rewardIdByArena: new Map(sequence.map((entry) => [entry.arenaId, entry.rewardId])),
+      }).economy
+
+    const baseline = priceWith(content.upgrades)
+    expect(baseline.passesForAllUpgrades, 'the baseline must be affordable for the comparison to mean anything').toBeGreaterThan(0)
+    const clothNet = baseline.resources.find((flow) => flow.resource === 'cloth')?.net ?? 0
+    expect(clothNet, 'the campaign must earn cloth, or a cloth-only price change proves nothing').toBeGreaterThan(0)
+
+    /* Dearer in cloth only. A metal-only metric returns the same number here. */
+    const dearerInCloth = priceWith(
+      content.upgrades.map((upgrade) => ({ ...upgrade, cost: { ...upgrade.cost, cloth: (upgrade.cost.cloth ?? 0) + 40 } })),
+    )
+    expect(dearerInCloth.passesForAllUpgrades, 'cloth cost is ignored: the metric prices only metal').toBeGreaterThan(
+      baseline.passesForAllUpgrades!,
+    )
+
+    /* A resource the campaign never earns means "never at this rate" — `null`, not a large number. */
+    const unearnable = priceWith(content.upgrades.map((upgrade) => ({ ...upgrade, cost: { ...upgrade.cost, powder: 5 } })))
+    expect(unearnable.passesForAllUpgrades).toBeNull()
   })
 
   it('renders a Markdown summary carrying the provenance and the same numbers', async () => {
