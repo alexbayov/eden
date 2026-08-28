@@ -27,6 +27,84 @@
   letter-spacing: 0.18em;
   color: var(--color-accent-slate);
 }
+/*
+  W2-P — the keyboard mirror, collapsed.
+
+  It stays in the DOM and in the tab order once opened; `<summary>` is focusable, so a keyboard player reaches the full
+  cell list with one Enter. Styled as a quiet control rather than a heading, because it is a fallback view of the map and
+  not a section of its own.
+*/
+.tactical-mirror > summary {
+  cursor: pointer;
+  padding: var(--space-sm) 0;
+  color: var(--color-text-muted);
+  font: 12px/1.35 ui-monospace, monospace;
+}
+
+/*
+  W2-P — the combat HUD lays its buttons out in a grid instead of one tall column.
+
+  Measured on the first live run: the body-part selector was 299px and the posture selector 213px, both as single-file
+  columns inside a 300px HUD, which pushed the combat screen to 1956px against a 720px window. The buttons themselves are
+  fine — there are only six parts and three postures — they were simply stacked.
+
+  `auto-fit` with a small floor rather than a fixed column count: the same rule then works in the wide desktop HUD and in
+  the stacked phone layout, where the HUD spans the full width. Touch targets keep `--size-min-touch-target`, so this
+  cannot shrink a control below the touch-target floor that `viewport-geometry.spec.ts` measures.
+*/
+.action-tray .actions,
+.hud .actions.postures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: var(--space-sm);
+}
+.action-tray .actions button,
+.hud .actions.postures button {
+  min-height: var(--size-min-touch-target);
+}
+
+/*
+  W2-P — collapsible base sections.
+
+  The base screen was 3590px against a 900px window because craft, upgrades, repair and dismantle were all expanded at
+  once. `<summary>` carries the existing `<h3>`, so the heading structure axe checks stays intact — the marker is styled,
+  not replaced, and no ARIA is added because `<details>` already announces its state.
+*/
+.base-section {
+  margin: var(--space-sm) 0;
+  border: 1px solid var(--color-border-dim);
+  border-radius: 6px;
+  padding: 0 var(--space-md);
+}
+.base-section > summary {
+  cursor: pointer;
+  padding: var(--space-sm) 0;
+  list-style: none;
+}
+.base-section > summary::-webkit-details-marker {
+  display: none;
+}
+/* The affordance: a caret that turns when open, so a collapsed section does not read as an inert heading. */
+.base-section > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--color-accent);
+}
+.base-section[open] > summary::before {
+  content: "▾";
+}
+/* `<h3>` inside `<summary>` must not force a line break, or every section title becomes two rows. */
+.base-section > summary > h3,
+.base-section > summary > h2 {
+  display: inline;
+  margin: 0;
+}
+/* The mission catalogue is a section of the base screen but the whole of mission-select, so it carries no frame there. */
+.mission-catalogue[open] {
+  border-color: transparent;
+  padding-inline: 0;
+}
 /* W10-04: the shipped version, dimmer than the eyebrow it sits in — informative, not a headline. */
 .app-version {
   color: var(--color-text-faint);
@@ -93,7 +171,18 @@
 }
 .canvas-wrap {
   grid-area: canvas;
-  min-height: 610px;
+  /*
+    W2-P — the map is sized to the window instead of a fixed 610px floor.
+
+    `min-height: 610px` plus a ~970px command panel stacked under it made the combat screen 1956px on a 720px window, so
+    the battlefield could never be on screen together with its own controls. Measured on the owner's first live run.
+
+    `clamp` keeps a usable floor for the isometric grid while never demanding more than the window can give: the map
+    shrinks on a short viewport rather than pushing the panel out of sight. The canvas itself already scales — `height:
+    auto` below — so this changes layout, not the rendering.
+  */
+  min-height: clamp(280px, 52vh, 610px);
+  max-height: 70vh;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--color-border-cool-vivid);

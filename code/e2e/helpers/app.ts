@@ -214,6 +214,22 @@ export const quickSlotButton = (page: Page, slotNumber: number): Locator =>
 export const dismantleButton = (page: Page, id: string): Locator =>
   page.locator(`button[data-dismantle="${id}"]`);
 
+/**
+ * Opens a collapsed base section so its controls are operable, and returns once they are.
+ *
+ * `W2-P` folded craft, upgrades and dismantle into `<details>` — the base screen was 4843px on a phone with everything
+ * expanded at once. A closed `<details>` genuinely hides its contents, so a spec that clicks straight into one waits
+ * forever; this is the step a player performs, made explicit rather than worked around by forcing the click.
+ */
+export async function openBaseSection(page: Page, titlePattern: RegExp): Promise<void> {
+  const summary = page.locator("details.base-section > summary").filter({ hasText: titlePattern }).first();
+  if (!(await summary.count())) return;
+  const details = summary.locator("xpath=..");
+  if (await details.evaluate((node) => (node as HTMLDetailsElement).open)) return;
+  await summary.click();
+  await expect(details).toHaveAttribute("open", "");
+}
+
 /** The W5-05 backpack-loss block on the return screen. */
 export const lossNotice = (page: Page): Locator => page.locator("p.backpack-loss");
 

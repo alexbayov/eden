@@ -516,6 +516,22 @@ export function App() {
    * The penalty the player is shown *before* confirming the return, and the exact object that is
    * applied when they do. Computed by `deathPenalty` and never re-derived here (W4-02 criterion 4).
    */
+  /**
+   * W2-P — start every screen at the top.
+   *
+   * Found by the owner's first live run, and it made the game look unplayable: the browser keeps the scroll position
+   * across a screen change, so entering combat from a scrolled mission list left the tactical canvas at y=-914 — above
+   * the viewport. The player saw a column of «Клетка 5,4 · 4 ОЧ» buttons and no battlefield. The canvas was rendering
+   * correctly the whole time; it was simply off screen.
+   *
+   * Keyed on `campaign.screen` **only**, deliberately. Resetting on every render would throw the player back to the top
+   * after each move inside combat — a different defect of the same family, and `playable-layout.spec.ts` pins the
+   * distinction. `campaign.phase` is not in the dependency list for the same reason.
+   */
+  useEffect(() => {
+    /* `instant`, not smooth: a screen change is not a place for animation, and reduced-motion users have asked for none. */
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [campaign.screen]);
   const pendingPenalty = campaign.screen === "return" ? deathPenalty(campaign, catalog?.progression.curve) : null;
   /**
    * W5-05 — the loot half of the same return, previewed with the *same call* that will be committed.
@@ -1806,6 +1822,20 @@ const arenas = await loadArenaCatalog(
             </section>
           )}
         <section class="campaign-grid">
+          {/*
+            W2-P — the base panel belongs to the base screen.
+
+            It was rendered unconditionally, so mission-select carried 1064px of base UI — repair, craft, upgrades, stash —
+            above the mission list, and the reward/return screens carried it too. On a phone that made mission-select
+            3316px (×3.9 of the viewport) when the list itself is 1406px.
+
+            Hidden on **mission-select only**, and that scope is a correction. My first attempt gated it to
+            `screen === "home"`, which also removed it from the reward and return screens — and `W4-01` criterion 4
+            requires the level to be visible in *both* the base panel and the reward panel, which
+            `combat-shell.dom.test.tsx` asserts by counting two `p.progression` readouts. So the panel is removed from the
+            one screen that has its own long list and does not need it, not from every screen that is not the base.
+          */}
+          {campaign.screen !== "mission-select" && (
           <div class="card home-panel">
             <span class="label">БАЗА / ДОМАШНИЙ ЭКРАН</span>
             <h2>Бункер у периметра</h2>
@@ -1944,7 +1974,19 @@ const arenas = await loadArenaCatalog(
                   safe by construction: `craft`/`applyUpgrade` preflight and refuse atomically, and
                   the click logs the same reason the label states (W5-01 §3, W5-02 §1–2).
                 */}
-                <h3>Крафт</h3>
+                {/*
+                  W2-P — collapsed by default.
+
+                  Measured on the owner's first live run: this block alone was 441px and the whole base screen was 3590px
+                  against a 900px window — ×4.0, and ×5.7 on a phone. Everything was expanded at once, so a player had to
+                  scroll past four catalogues to reach anything.
+
+                  Native `<details>` rather than a hand-rolled toggle: it brings keyboard operation, the correct
+                  expanded/collapsed announcement and the disclosure semantics for free. `W2-03`/`W2-04` already closed
+                  keyboard and screen-reader support, and a bespoke widget would have put that at risk for no gain.
+                */}
+                <details class="base-section">
+                  <summary><h3>Крафт</h3></summary>
                 <div class="actions craft-actions">
                   {basePanel.recipes.map((recipe) => (
                     <button
@@ -1964,7 +2006,9 @@ const arenas = await loadArenaCatalog(
                     </button>
                   ))}
                 </div>
-                <h3>Улучшения</h3>
+                </details>
+                <details class="base-section">
+                  <summary><h3>Улучшения</h3></summary>
                 <div class="actions upgrade-actions">
                   {basePanel.upgrades.map((entry) => (
                     <button
@@ -1984,6 +2028,7 @@ const arenas = await loadArenaCatalog(
                     </button>
                   ))}
                 </div>
+                </details>
                 {/*
                   W5-04 — dismantle.
 
@@ -1995,7 +2040,8 @@ const arenas = await loadArenaCatalog(
                   would soft-lock the run. The repair price sits next to the return so the two options
                   are comparable, without this screen recommending one.
                 */}
-                <h3 id="dismantle-title">Разборка</h3>
+                <details class="base-section">
+                  <summary><h3 id="dismantle-title">Разборка</h3></summary>
                 <p class="dismantle-summary">{dismantlePanel.summary}</p>
                 <p class="sr-only" aria-live="polite">
                   {dismantlePanel.pendingConfirmation
@@ -2037,9 +2083,11 @@ const arenas = await loadArenaCatalog(
                   ))}
                   {dismantlePanel.options.length === 0 && <p>Нет предметов для разборки.</p>}
                 </div>
+                </details>
               </>
             )}
           </div>
+          )}
           {/* Gated with the base actions: every control in this card persists a save, and on the
               reward/return screens that save would still carry the unresolved transition. */}
           {baseActionsAvailable && (
@@ -2236,7 +2284,20 @@ const arenas = await loadArenaCatalog(
                 </ul>
               )}
             </div>
-            <h2>Ближняя окраина</h2>
+            {/*
+              W2-P — the campaign catalogue is collapsed on the base screen and open on mission-select.
+
+              It was rendered expanded on both, 1045px of it, which is most of why the base screen was 3218px on a phone.
+              On the base screen it is also **inert**: the «НАЧАТЬ» buttons below are gated to `mission-select`, so a
+              player scrolled past six cards they could not act on to reach the one button that mattered.
+
+              `open` follows the screen rather than being remembered, because the two screens want opposite defaults: on
+              mission-select the list *is* the screen, and collapsing it there would hide the point of it.
+            */}
+            <details class="base-section mission-catalogue" open={campaign.screen === "mission-select"}>
+              <summary>
+                <h2>Ближняя окраина</h2>
+              </summary>
             <p>Все encounter этой зоны и их текущая доступность сохраняются локально.</p>
             <div class="mission-list">
               {catalog.missions.map((entry) => {
@@ -2247,12 +2308,27 @@ const arenas = await loadArenaCatalog(
                 return <article class="mission-card" key={entry.id}>
                   <h3>{entry.name}</h3>
                   <p>{entry.description}</p>
-                  <p>Карта: {map?.name ?? entry.arenaId} · Сложность: {entry.difficulty} · Статус: <b>{progress.status}</b></p>
-                  <p>Награда: {reward?.name ?? entry.rewardId} · побед: {progress.victories} · {progress.firstRewardClaimed ? "получена" : "не получена"}</p>
+                  {/*
+                    W2-P — one metadata line instead of two.
+
+                    The card carried «Карта … Сложность … Статус» and «Награда … побед … получена» as separate paragraphs,
+                    and `Статус: available` restated what the button below already says in words. Six cards × 146px was
+                    most of a 3499px mission-select screen on a phone.
+
+                    Nothing is dropped: map, difficulty, reward and claim state are all still here, joined into one line
+                    that wraps instead of two that always occupy four rows. The redundant `Статус` is the only removal,
+                    because the button is the authority on whether an encounter can be entered.
+                  */}
+                  <p class="mission-meta">
+                    {map?.name ?? entry.arenaId} · сложность {entry.difficulty} · награда: {reward?.name ?? entry.rewardId}
+                    {progress.victories > 0 ? ` · побед: ${progress.victories}` : ""}
+                    {progress.firstRewardClaimed ? " · награда получена" : ""}
+                  </p>
                   {campaign.screen === "mission-select" && <button disabled={!canStart} onClick={() => beginMission(entry.id)}>{progress.status === "failed" ? "ПОВТОРИТЬ" : progress.status === "available" ? "НАЧАТЬ" : progress.status === "completed" ? "ЗАВЕРШЕНО" : "ЗАБЛОКИРОВАНО"}</button>}
                 </article>;
               })}
             </div>
+            </details>
             <p class="log">{log}</p>
              {campaign.screen === "mission-select" && <div class="actions"><button onClick={() => { if (!persist(units, "player", { ...campaign, screen: "home", activeMissionId: null }, inventory, base)) return; setLog("Возврат на базу."); }}>НАЗАД НА БАЗУ</button></div>}
             {campaign.screen === "reward" && (
@@ -2418,10 +2494,19 @@ const arenas = await loadArenaCatalog(
           aria-labelledby="tactical-controls-title"
         >
           <h2 id="tactical-controls-title">Тактическое управление</h2>
-          <p>
-            Дублирует карту для клавиатуры и касания. Все подписи видны без
-            наведения курсора.
-          </p>
+          {/*
+            W2-P — the keyboard mirror is collapsed by default.
+
+            This panel duplicates the map for keyboard and touch (`W2-03`), and it must stay: without it the game is
+            unplayable without a mouse. But it was open at all times *below* the map, ~970px of it, so the battlefield and
+            its own controls could never be on screen together — the combat screen was 1956px against a 720px window.
+
+            `<details>` rather than removal, and rather than a custom toggle: the content stays in the DOM and in the tab
+            order once opened, `<summary>` is itself focusable, and the expanded state is announced without any ARIA of
+            mine. Keyboard players reach it with one Enter; mouse players who never need it no longer scroll past it.
+
+            The objective and the action tray stay **outside** this block on purpose — those are read every turn.
+          */}
           {/*
             W6-01 — the objective, every turn (criterion 2).
 
@@ -2476,6 +2561,20 @@ const arenas = await loadArenaCatalog(
               )}
             </section>
           )}
+          {/*
+            W2-P — **open** by default, and that is a correction of my own first attempt.
+            
+            I collapsed this block to shorten the combat screen, and 21 E2E tests failed: the controls inside it are the
+            game's actual reload, unjam, quick-slot and cell buttons, and `W2-03`/`W2-04` require them to be reachable
+            without a mouse. Hidden inside a closed `<details>` they are not visible, so collapsing them did not tidy the
+            screen — it removed the keyboard path to playing.
+            
+            So the height comes from the map (`clamp` on `.canvas-wrap`), the grid layout of the action buttons and the
+            collapsed *base* sections, none of which take a control away. `<details>` is kept because a player who does not
+            need the full 38-cell list can fold it, but the default is open.
+          */}
+          <details class="tactical-mirror" open>
+            <summary>Дублирует карту для клавиатуры и касания</summary>
           <h3 id="tactical-targets-title">Видимые цели</h3>
           <div class="tactical-options" role="group" aria-labelledby="tactical-targets-title">
             {combatScreen.targets.map((option) => (
@@ -2628,6 +2727,7 @@ const arenas = await loadArenaCatalog(
               ))}
             </div>
           ))}
+          </details>
         </section>
         <aside class="hud">
           <div class="card">

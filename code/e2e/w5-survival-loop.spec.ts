@@ -3,6 +3,7 @@ import {
   clearSave,
   collectConsoleErrors,
   dismantleButton,
+  openBaseSection,
   gotoApp,
   lossNotice,
   persistedHero,
@@ -224,6 +225,8 @@ test.describe("W5-04 dismantle in a real browser", () => {
     await clearSave(page);
     await seedRawSave(page, buildSave(content, { screen: "home" }).raw);
     await gotoApp(page);
+    /* `W2-P` collapsed the base sections; a player opens the one they need, and so does this spec. */
+    await openBaseSection(page, /Разборка/);
 
     const worn = dismantleButton(page, "hero-hornet");
     await expect(worn).toHaveAttribute("data-blocked", "equipped");
@@ -264,6 +267,7 @@ test.describe("W5-04 dismantle in a real browser", () => {
     await clearSave(page);
     await seedRawSave(page, buildSave(content, { screen: "home", stashItems: [{ id: "repair-kit", quantity: 2 }] }).raw);
     await gotoApp(page);
+    await openBaseSection(page, /Разборка/);
 
     const kit = dismantleButton(page, "repair-kit");
     for (const [id, amount] of Object.entries(returns.returns)) {
