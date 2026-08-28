@@ -8,6 +8,12 @@ import {
   type BaseUpgradeEffect,
   type RecipeDefinition,
 } from "./base";
+import {
+  EMPTY_NARRATIVE,
+  validateNarrative,
+  type NarrativeCatalog,
+  type NarrativeReferences,
+} from "./narrative";
 import type { Reward } from "./rewards";
 import type { ResourceCost, ResourceId } from "./inventory";
 import { isResourceId } from "./inventory";
@@ -21,6 +27,7 @@ import {
   type ObjectiveType,
 } from "./objective";
 import {
+  ContentLoadError,
   ContentValidationError,
   fetchContent,
   isInt,
@@ -781,6 +788,30 @@ export const loadMissions = async (url = "/config/missions.json") =>
   throwing(validateMissions(await fetchContent(url)));
 export const loadRewards = async (url = "/config/rewards.json") =>
   throwing(validateRewards(await fetchContent(url)));
+
+/**
+ * W7-03 — loads the narrative catalog, treating **a missing file as an empty catalog**.
+ *
+ * The asymmetry with every other loader above is the point. A missing `missions.json` is a broken build and must throw;
+ * a missing `narrative.json` is the shipped state today (`W7-04` has not written any story) and must not.
+ *
+ * Only a **404** is absence. A malformed payload, a parse failure or any other status still throws, because those are
+ * broken content rather than absent content — collapsing them would let a typo in the narrative silently delete the
+ * story instead of failing the build.
+ */
+export const loadNarrative = async (
+  url = "/config/narrative.json",
+  references?: NarrativeReferences,
+): Promise<NarrativeCatalog> => {
+  let payload: unknown;
+  try {
+    payload = await fetchContent(url);
+  } catch (error) {
+    if (error instanceof ContentLoadError && error.status === 404) return EMPTY_NARRATIVE;
+    throw error;
+  }
+  return throwing(validateNarrative(payload, references));
+};
 export type { ResourceId };
 export type { ItemEffect, ItemEffectDefinition, ReturnTableDefinition };
 export { ContentValidationError };

@@ -18,11 +18,11 @@
 
 | Что | Значение | Как проверено |
 |---|---|---|
-| `npm test` | **42 файла / 617 тестов**, все зелёные | прогон |
+| `npm test` | **43 файла / 632 теста**, все зелёные | прогон |
 | — project `node` | 37 файлов / 544 теста | прогон `--project node` |
 | — project `dom` | 5 файлов / 72 теста | прогон `--project dom` |
 | `npm run verify` | проходит целиком, exit 0 | прогон; с `W7-02` включает `validate:content`, с `W10-04` — `analyze:release` |
-| `npm run test:e2e` | **17 файлов / 152 теста** в Chromium, зелёные (~3.5 мин) | **прогон**, не только `--list` |
+| `npm run test:e2e` | **17 файлов / 153 теста** в Chromium, зелёные (~3.5 мин) | **прогон**, не только `--list` |
 | Бюджет | initial JS **60.2 kB** gzip, ленивый бой 349.7 kB gzip | `analyze:budget` |
 | Save schema | **v7** (`eden.save.v7`), цепочка v3→v4→v5→v6→v7 | `save.test.ts` |
 | Контент | **2 зоны / 6 encounter**, `validate:content --strict-playability` чист | прогон |

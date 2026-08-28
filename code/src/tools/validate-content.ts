@@ -37,6 +37,7 @@ import {
   validateZones,
   type MissionDefinition,
 } from '../game/campaign-content'
+import { validateNarrative, type NarrativeCatalog } from '../game/narrative'
 import { parseArenaContent, validateArenaCatalog, validateArenaManifest, type ArenaContent } from '../game/content'
 import { parseEquipmentCatalog } from '../game/equipment-content'
 import { validateProgression } from '../game/progression'
@@ -120,6 +121,27 @@ export async function validateContent(options: { strict?: boolean } = {}): Promi
   const returnTables = collect('return-tables.json', validateReturnTables(await read('return-tables.json')), findings)
   const progression = collect('progression.json', validateProgression(await read('progression.json')), findings)
 
+  /*
+   * W7-03 — narrative, whose **absence is valid** and is the shipped state: `W7-04` has written no story yet.
+   *
+   * Read separately from `read()` because that helper treats a missing file as a hard stop, which is right for every
+   * catalog above (a build without missions is broken) and wrong here. Only `ENOENT` is absence; a malformed file is still
+   * a hard error, so a typo in the narrative cannot silently delete it.
+   */
+  let narrative: NarrativeCatalog | null = null
+  try {
+    const raw = await readFile(join(CONFIG_DIR, 'narrative.json'), 'utf8')
+    filesChecked.push('narrative.json')
+    const refs =
+      zones && missions
+        ? { zoneIds: new Set(zones.map((zone) => zone.id)), encounterIds: new Set(missions.map((mission) => mission.id)) }
+        : undefined
+    narrative = collect('narrative.json', validateNarrative(JSON.parse(raw) as unknown, refs), findings)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      findings.push(errorFinding('narrative.json', '$', (error as Error).message))
+  }
+
   /* Equipment and arenas throw rather than returning a result, so they are wrapped. */
   let equipment: ReturnType<typeof parseEquipmentCatalog> | null = null
   try {
@@ -128,6 +150,15 @@ export async function validateContent(options: { strict?: boolean } = {}): Promi
   } catch (error) {
     findings.push(errorFinding('equipment.json', '$', (error as Error).message))
   }
+
+  /* Stated rather than silent: a reader must be able to tell "narrative is clean" from "there is no narrative". */
+  if (!narrative)
+    findings.push({
+      source: 'narrative.json',
+      path: '$',
+      level: 'warning',
+      message: 'нарративного каталога нет — это ожидаемое состояние: тексты пишет W7-04, а движок (W7-03) работает без них',
+    })
 
   const manifest = collect('arena-manifest.json', validateArenaManifest(await read('arena-manifest.json')), findings)
   const arenas: ArenaContent[] = []

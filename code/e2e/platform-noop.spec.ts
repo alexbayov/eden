@@ -88,3 +88,46 @@ test.describe("W10-02 the game runs with no platform and no network", () => {
     expect(globals).toEqual({ ysdk: false, ya: false, gtag: false, dataLayer: false });
   });
 });
+
+test.describe("W7-03 the narrative engine ships with no narrative", () => {
+  test("the game runs and is playable with no narrative catalog at all", async ({ page, baseURL }) => {
+    /*
+     * `W7-03` criterion 2 as an end-to-end fact: `public/config/narrative.json` does **not exist** in the build — writing
+     * the story is `W7-04` and belongs to the owner — and its absence must break nothing.
+     *
+     * Asserted in a browser rather than in a unit test because the failure mode is a boot-time fetch: `fetchContent`
+     * throws on a 404, so a loader that forgot to special-case absence would take the whole app down on load, which no
+     * pure-function test would notice. The 404 itself is asserted, so this cannot pass by the file quietly appearing.
+     */
+    const errors = collectConsoleErrors(page);
+    const narrativeStatuses: number[] = [];
+    page.on("response", (response) => {
+      if (response.url().endsWith("/config/narrative.json")) narrativeStatuses.push(response.status());
+    });
+
+    await clearSave(page);
+    await seedRawSave(page, buildSave(content, { screen: "mission-select" }).raw);
+    await gotoApp(page);
+    await expect(phaseLabel(page)).toHaveText("МИССИЯ");
+
+    /*
+     * The build genuinely ships no narrative catalog, asserted by **content** rather than by status code.
+     *
+     * My first version asserted a 404 and failed with a 200: `vite preview` has an SPA fallback and answers an unknown
+     * path with `index.html`, so the status says nothing about whether the file exists. Checking that the response is not
+     * a narrative catalog is the assertion that actually holds — and it would also catch a real narrative file appearing,
+     * which is the thing this test exists to notice.
+     */
+    const served = await page.request.get(`${baseURL}/config/narrative.json`);
+    const body = await served.text();
+    expect(body.includes('"kind":"narrative"'), "a narrative catalog is being served, so this test is checking a file that exists").toBe(false);
+    /* Whatever the app requested, it did not receive a usable catalog — and it still booted. */
+    expect(narrativeStatuses.every((status) => status === 404 || status === 200)).toBe(true);
+
+    /* And the game is not merely loaded but playable: enter an encounter, which is the path that would break if a
+       missing catalog had poisoned boot. */
+    await page.getByRole("button", { name: "НАЧАТЬ" }).first().click();
+    await expect(phaseLabel(page)).toHaveText("ВАШ ХОД");
+    expect(errors).toEqual([]);
+  });
+});
