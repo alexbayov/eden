@@ -1,6 +1,6 @@
 # 20 — MVP Scope & Roadmap
 
-**Статус:** сверено с кодом 24 августа 2026. M3-D performance pass implemented and committed (`61c991b`, в `origin`); strict save validation and deterministic balance bounds confirmed, initial bundle budget automated; browser E2E поднят и зелёный локально (`W1-01`…`W1-05`), runtime performance и ручная device QA — **pending**.
+**Статус:** сверено с кодом **28 августа 2026**. Все шесть решений D-01…D-06 приняты; закрыты гейты **G0, G1, G3**. `npm run verify` проходит целиком (42 файла / **617 тестов**), `npm run test:e2e` — 17 файлов / **152 теста**, оба job CI зелёные, branch protection включена. **Runtime performance измерена** (`W1-06`, headless Chromium на CI): TTI 376–423 мс, готовность боя 792–873 мс, средний FPS 56–57, пик heap 16–20 МБ — все в бюджетах doc 24 §6.2; прежняя пометка «runtime performance — pending» снята. **Ручная QA на реальном устройстве по-прежнему pending** (`W2-06`) и является единственным блокером G2: замер на CI-железе прокси для устройства игрока не является, и половинки этого утверждения намеренно разделены.
 
 > **Числа набора устарели, правка 26 августа 2026.** Приведённые ниже значения относятся к 24 августа и не учитывают пакеты `W5`, `W6`, `W7-02`, `W7-05`. Актуально: **37 файлов / 526 тестов**, **12 файлов / 124 E2E**, save schema **v6**, initial JS 57.4 kB gzip, CI зелёный. Владелец чисел — [`24-test-matrix-and-release-gates.md`](24-test-matrix-and-release-gates.md) §1; при расхождении верен он, а не этот абзац.
 
@@ -46,13 +46,13 @@
 
 ## Gate
 
-**M3-D performance gate:** initial bundle budget is automated; browser E2E and runtime performance QA remain pending.
+**M3-D performance gate:** initial bundle budget is automated; browser E2E is **green** (17 files / 152 tests) and runtime performance is **measured** on CI (`W1-06`). What remains pending is QA on a real device (`W2-06`) — the two halves of the old sentence are separated on purpose, because CI hardware is not a proxy for a player's phone.
 
 ## Ручная browser QA, не заявленная как implementation coverage
 
 - Browser/device E2E, accessibility walkthrough и visual regression.
 - Ручная проверка Mission Select, Phaser rendering и переключения всех encounter maps в настоящем браузере; это не покрывается unit/integration runtime fixtures.
-- Performance profiling and browser/device verification remain pending; the static production bundle budget is covered by CI.
+- Performance profiling is **done** (`W1-06`: TTI 376–423 ms, combat-ready 792–873 ms, 56–57 fps, 16–20 MB heap, all inside doc 24 §6.2) and browser E2E is green. **Device** verification remains pending (`W2-06`) and is the only blocker of G2. The static production bundle budget is covered by CI.
 
 ## За пределами M3-B alpha
 
