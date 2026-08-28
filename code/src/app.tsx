@@ -2399,6 +2399,18 @@ const arenas = await loadArenaCatalog(
         <div
           class="canvas-wrap"
           ref={host}
+          /*
+            W2-A — `role="img"` is required for the label to exist at all.
+            
+            This was `aria-label` on a bare `<div>`. ARIA prohibits naming a generic element, so the label was
+            **discarded** by assistive technology: the text had been sitting here doing nothing, and nothing asserted
+            it. Found by the axe audit as `aria-prohibited-attr` (serious) — the first real defect that audit caught.
+            
+            `img` rather than `application` or `group`: the canvas is an opaque rendering with no accessible children,
+            which is exactly what `img` describes. It also stops screen readers from trying to walk into it. The board's
+            actual state is conveyed by the live region and the tactical panel, which are audited alongside this.
+          */
+          role="img"
           aria-label="Тактическая карта. Нажмите доступную клетку для перемещения."
         />
         <section

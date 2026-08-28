@@ -1,0 +1,18 @@
+{
+  "commit": "48a1942",
+  "environment": "ci-headless-chromium",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "ttiMs": 263,
+  "combatReadyMs": 750,
+  "avgFps": 53,
+  "minFps": 30,
+  "heapPeakBytes": 19300000,
+  "enemyTurnMs": 587,
+  "worstFrameMs": 33.4,
+  "mountStallMs": 250,
+  "budgetPass": true,
+  "violations": []
+}
